@@ -194,3 +194,37 @@ test('Sentries never enter or scan through the AI node', () => {
   const g = setup(job02, st => { st.player = 'U'; st.ai.trusted = true; st.ai.offered = true; st.extraLinks.push(['U', 'S']); });
   g.state.sentries.forEach(s => assert.notEqual(s.intent.target, 'U'));
 });
+
+test('random play never breaks the rules (fuzz)', () => {
+  let seed = 12345;
+  const rnd = n => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  for (const job of JOBS) {
+    for (let run = 0; run < 400; run++) {
+      const g = E.newGame(job);
+      for (let step = 0; step < 200 && g.state.status === 'playing'; step++) {
+        const st = g.state;
+        if (st.ai && st.ai.pending) { ok(E.answerAI(g, rnd(2) === 0)); continue; }
+        const opts = [];
+        E.legalMoves(g).forEach(n => opts.push(() => E.move(g, n)));
+        Object.keys(st.charges).forEach(p => {
+          if (!E.canRun(g, p)) return;
+          if (E.PROGRAMS[p].target === 'self') opts.push(() => E.runProgram(g, p));
+          else E.programTargets(g, p).forEach(t => opts.push(() => E.runProgram(g, p, t)));
+        });
+        if (E.canExtract(g)) opts.push(() => E.extract(g));
+        if (g.undoStack.length) opts.push(() => E.undo(g));
+        opts.push(() => E.endTurn(g));
+        ok(opts[rnd(opts.length)]());
+        const s = g.state;
+        assert.ok(s.heat >= 0 && s.heat <= E.HEAT_MAX);
+        assert.ok(s.actions >= 0 && s.actions <= E.ACTIONS_PER_TURN);
+        assert.ok(s.turn >= 1 && s.turn <= job.turnLimit);
+        const spots = s.sentries.map(x => x.pos);
+        assert.equal(new Set(spots).size, spots.length, 'two Sentries on one node');
+        assert.ok(!spots.includes(s.player) || s.status !== 'playing', 'Sentry on the player');
+        if (job.ai) assert.ok(!spots.includes(job.ai.node), 'Sentry on the AI node');
+        Object.values(s.charges).forEach(c => assert.ok(c >= 0));
+      }
+    }
+  }
+});

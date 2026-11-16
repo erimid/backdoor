@@ -105,7 +105,7 @@
     h += '<div class="hdr"><button class="icon-btn" data-act="home" aria-label="Back to job board">' + icon('close') + '</button>' +
       '<div class="mid"><div class="kicker">JOB ' + job.number + ' · BRIEFING</div><div class="title">' + esc(job.name) + '</div></div></div>';
     h += '<div class="chips"><div class="chip gold">◆ ' + esc(job.goal) + '</div><div class="chip">Exit at ENTRY</div><div class="chip">' + job.turnLimit + ' turns</div></div>';
-    h += '<ol class="tips">' + job.tips.map(function (t) { return '<li class="card">' + t + '</li>'; }).join('') + '</ol>';
+    h += '<ol class="tips">' + job.tips.map(function (t) { return '<li class="card"><span>' + t + '</span></li>'; }).join('') + '</ol>';
     h += '<div class="kicker">Programs this job</div>' + programRows(job);
     h += '<div class="kicker" style="margin-top:4px">Stars</div><div class="card prog-row"><span>1 for getting out with the data, 1 for finishing at heat ' + E.STAR_HEAT + ' or less, 1 for never being scanned or bumped.</span></div>';
     h += '<div style="margin-top:auto;padding-top:10px"><button class="btn primary" style="width:100%" data-act="start">START JOB</button></div>';
@@ -579,7 +579,7 @@
     } else if (o === 'help') {
       h += '<div class="sheet" role="dialog" aria-label="How to play" data-act="">' +
         '<div class="title">How to play</div>' +
-        '<ol class="tips">' + JOBS[0].tips.concat(ui.job === JOBS[0] ? [] : ui.job.tips).map(function (t) { return '<li class="card">' + t + '</li>'; }).join('') + '</ol>' +
+        '<ol class="tips">' + JOBS[0].tips.concat(ui.job === JOBS[0] ? [] : ui.job.tips).map(function (t) { return '<li class="card"><span>' + t + '</span></li>'; }).join('') + '</ol>' +
         programRows(ui.job) +
         '<p>Heat: scanned +3, bumped +2, honeypot +4, Brute +1, Extract +1, admin trace +1 on each of the last 3 turns. Tap any node to see what it is.</p>' +
         '<button class="btn primary" data-act="close-overlay">BACK TO THE JOB</button></div>';
@@ -608,8 +608,10 @@
         '<dt>Avg stars</dt><dd>' + avgStars + '</dd>' +
         '<dt>Again?</dt><dd>' + (asked ? yes + ' of ' + asked + ' said yes' : 'not answered') + '</dd></div>';
     });
-    h += '<p>Copy the log and paste it into the project thread, or download it as a spreadsheet.</p>';
-    h += '<div class="row"><button class="btn primary" data-act="copy-log">COPY</button><button class="btn" data-act="csv">Download CSV</button></div>';
+    h += '<p>Copy the log and paste it into the project thread.</p>';
+    // Downloads are blocked when the page runs inside a sandboxed frame (e.g. a claude.ai artifact).
+    var framed = false; try { framed = window.self !== window.top; } catch (e) { framed = true; }
+    h += '<div class="row"><button class="btn primary" data-act="copy-log">COPY</button>' + (framed ? '' : '<button class="btn" data-act="csv">Download CSV</button>') + '</div>';
     h += '<div class="row"><button class="btn ghost" data-act="clear">Clear log</button><button class="btn" data-act="close-overlay">Close</button></div>';
     return h;
   }
