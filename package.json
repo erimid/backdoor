@@ -1,0 +1,12 @@
+{
+  "name": "backdoor-hacking-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Throwaway prototype of Backdoor's hacking minigame: plain HTML, CSS and JavaScript.",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "solve": "node tools/solver.js",
+    "smoke": "node tools/smoke.js",
+    "build": "node tools/build.js"
+  }
+}
