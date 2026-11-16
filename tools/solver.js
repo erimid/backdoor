@@ -1,130 +1,137 @@
 #!/usr/bin/env node
 /*
- * Exhaustive solver for prototype jobs. Explores every sequence of player
- * actions (moves, programs, Extract, End turn, AI answers) with state
- * de-duplication, and reports whether each job can be won, the best star
- * count, and the cheapest win for each route through the board.
+ * Exhaustive solver for prototype jobs (v2 rules). Breadth-first search over
+ * every sequence of player actions (moves, programs, Extract, End turn, AI
+ * answers) with state de-duplication. Reports whether each job can be won and
+ * the best payout and stars for each route through the board.
  *
- * Usage: node tools/solver.js [jobId] [allowedNodeIds|-] [program,program]
- *   e.g. node tools/solver.js job02 ERWUSV spoof,sniff
+ * The state key covers everything that matters to the future of the game
+ * (turn, actions and overclock bank, position, data, cash and taken caches,
+ * BREACH and the exit, nodes, Sentries with their lure/noise, charges, AI
+ * answers and deals). States that differ only in heat/detected are merged:
+ * the one with lower heat (then not detected) wins, as in v1.
+ *
+ * Usage: node tools/solver.js [jobId] [allowedNodeIds|-] [program,program] [--variant N] [--limit N]
+ *   e.g. node tools/solver.js job02 ERWUSVPM spoof,sniff
+ * Job 02 is too big to search unrestricted; give it a node list.
  */
-var Engine = require('../js/engine.js');
+var crypto = require('crypto');
+var E = require('../js/engine.js');
 var JOBS = require('../js/jobs.js');
+var B = require('./beam.js');
 
-// States that differ only in heat/detected are merged: keep the one that
-// dominates (lower heat, and not detected if heat ties).
 function key(st) {
-  var s = Engine.clone(st);
+  var s = Object.assign({}, st);
   delete s.log; delete s.path; delete s.programsUsed; delete s.heat; delete s.detected;
-  return JSON.stringify(s);
+  delete s.par; delete s.variantId;
+  return crypto.createHash('sha1').update(JSON.stringify(s)).digest('base64');
 }
 function rank(st) { return st.heat * 2 + (st.detected ? 1 : 0); }
 
-function successors(game, opts) {
-  opts = opts || {};
-  var out = [];
+// Labels of every successor, filtered by the route restriction.
+function labels(game, opts) {
   var st = game.state;
-  function tryIt(label, fn) {
-    var g = { job: game.job, state: Engine.clone(st), undoStack: [] };
-    var r = fn(g);
-    if (r.ok) out.push({ label: label, game: g });
-  }
-  if (st.ai && st.ai.pending) {
-    tryIt('trust', function (g) { return Engine.answerAI(g, true); });
-    tryIt('refuse', function (g) { return Engine.answerAI(g, false); });
-    return out;
-  }
-  Engine.legalMoves(game).filter(function (n) { return !opts.nodes || opts.nodes.indexOf(n) !== -1; }).forEach(function (n) { tryIt('>' + n, function (g) { return Engine.move(g, n); }); });
-  Object.keys(st.charges).forEach(function (p) {
-    if (!st.charges[p]) return;
-    if (opts.programs && opts.programs.indexOf(p) === -1) return;
-    if (Engine.PROGRAMS[p].target === 'self') tryIt(p, function (g) { return Engine.runProgram(g, p); });
-    else Engine.programTargets(game, p).forEach(function (t) {
-      tryIt(p + '@' + t, function (g) { return Engine.runProgram(g, p, t); });
-    });
-  });
-  if (Engine.canExtract(game)) tryIt('extract', function (g) { return Engine.extract(g); });
-  tryIt('end', function (g) { return Engine.endTurn(g); });
-  return out;
+  if (st.ai && st.ai.pending) return ['trust', 'refuse'];
+  return B.actionLabels(game).filter(function (l) {
+    if (l[0] === '>') return !opts.nodes || opts.nodes.indexOf(l.slice(1)) !== -1;
+    if (l === 'extract') return true;
+    var p = l.split('@')[0];
+    return !opts.programs || opts.programs.indexOf(p) !== -1;
+  }).concat('end');
 }
 
 function solve(job, opts) {
   opts = opts || {};
-  var start = Engine.newGame(job);
+  var start = E.newGame(job, { variant: opts.variant, par: opts.par });
+  start.state.log = [];
+  var resolved = start.job;
+  // Search nodes are stored as JSON strings plus parent pointers, to keep memory flat.
+  var states = [JSON.stringify(start.state)], parent = [-1], label = [null];
   var seen = new Map();
-  var queue = [{ game: start, moves: [] }];
   seen.set(key(start.state), rank(start.state));
   var wins = [];
-  var explored = 0;
-  while (queue.length) {
-    var cur = queue.shift();
-    explored++;
-    if (explored > (opts.limit || 3e6)) break;
-    successors(cur.game, opts).forEach(function (s) {
-      var st = s.game.state;
-      var moves = cur.moves.concat([s.label]);
-      if (st.status === 'won') { wins.push({ moves: moves, state: st, game: s.game }); return; }
+  var head = 0;
+  var limit = opts.limit || 2e6;
+  while (head < states.length && head < limit) {
+    var idx = head++;
+    var st0 = JSON.parse(states[idx]);
+    states[idx] = null; // free it; only parent pointers are needed from here on
+    var game = { job: resolved, state: st0, undoStack: [], par: opts.par };
+    labels(game, opts).forEach(function (l) {
+      var g = { job: resolved, state: E.clone(st0), undoStack: [], par: opts.par };
+      if (!B.apply(g, l).ok) return;
+      var st = g.state;
+      st.log = [];
+      if (st.status === 'won') { wins.push({ parent: idx, label: l, game: g }); return; }
       if (st.status !== 'playing') return;
-      var k = key(st);
-      var r = rank(st);
+      var k = key(st); var r = rank(st);
       if (seen.has(k) && seen.get(k) <= r) return;
       seen.set(k, r);
-      queue.push({ game: s.game, moves: moves });
+      states.push(JSON.stringify(st)); parent.push(idx); label.push(l);
     });
   }
-  return { explored: explored, wins: wins };
-}
-
-function routeOf(path) {
-  // Compress the visited path to the set of distinctive nodes.
-  var out = [];
-  path.forEach(function (n) { if (out[out.length - 1] !== n) out.push(n); });
-  return out.join('');
+  function movesOf(w) {
+    var out = [w.label]; var i = w.parent;
+    while (i > 0) { out.push(label[i]); i = parent[i]; }
+    return out.reverse();
+  }
+  wins.forEach(function (w) { w.moves = movesOf(w); w.state = w.game.state; });
+  return { explored: head, complete: head >= states.length, wins: wins, job: resolved };
 }
 
 function summarize(job, opts) {
+  opts = opts || {};
   var t0 = Date.now();
   var r = solve(job, opts);
   var best = 0;
-  var byFeature = {};
+  var byRoute = {};
   r.wins.forEach(function (w) {
-    var stars = Engine.stars(w.game).count;
-    if (stars > best) best = stars;
-    var st = w.state;
-    var tags = [];
-    var p = st.path.join('');
-    // Route heuristic: which key nodes were visited before reaching the target.
-    var tgt = job.nodes.filter(function (n) { return n.type === 'target'; })[0].id;
-    var toTarget = st.path.slice(0, st.path.indexOf(tgt) + 1);
-    var via = job.nodes.filter(function (n) {
-      return ['firewall', 'lock', 'honeypot', 'ai'].indexOf(n.type) !== -1 && toTarget.indexOf(n.id) !== -1;
-    }).map(function (n) { return n.label; });
-    if (st.ai && st.ai.trusted) via.push('trusted');
-    if (st.ai && st.ai.refused) via.push('refused');
-    var k = via.length ? via.join('+') : 'patrol-slip';
-    var score = stars * 100 - st.heat;
-    if (!byFeature[k] || score > byFeature[k].score) {
-      byFeature[k] = { score: score, stars: stars, heat: st.heat, turns: st.turn, moves: w.moves.join(' '), path: routeOf(st.path) };
+    var s = E.stars(w.game).count;
+    var pay = E.payout(w.game).total;
+    if (s > best) best = s;
+    var k = B.routeKey(r.job, w.moves, w.state);
+    var score = s * 10000 + pay;
+    if (!byRoute[k] || score > byRoute[k].score) {
+      byRoute[k] = { score: score, stars: s, payout: pay, heat: w.state.heat, turn: w.state.turn, moves: w.moves.join(' '), path: w.state.path.join('') };
     }
   });
-  console.log('== ' + job.id + ' ' + job.name + ': explored ' + r.explored + ' states, ' + r.wins.length + ' winning lines, best ' + best + ' stars (' + (Date.now() - t0) + ' ms)');
-  Object.keys(byFeature).forEach(function (k) {
-    var b = byFeature[k];
-    console.log('  [' + k + '] best ' + b.stars + '★ heat ' + b.heat + ' turn ' + b.turns + '/' + job.turnLimit);
+  var par = opts.par || r.job.payout.par;
+  console.log('== ' + job.id + ' ' + job.name + ': explored ' + r.explored + ' states' + (r.complete ? '' : ' (hit the limit)') +
+    ', ' + r.wins.length + ' winning lines, best ' + best + '★ at par $' + par + ' (' + (Date.now() - t0) + ' ms)');
+  Object.keys(byRoute).sort().forEach(function (k) {
+    var b = byRoute[k];
+    console.log('  [' + k + '] best ' + b.stars + '★ $' + b.payout + ' heat ' + b.heat + ' turn ' + b.turn + '/' + r.job.turnLimit);
     console.log('     path ' + b.path);
     console.log('     ' + b.moves);
   });
-  return { best: best, routes: byFeature, wins: r.wins.length };
+  return { best: best, routes: byRoute, wins: r.wins.length, complete: r.complete };
 }
 
 if (require.main === module) {
-  var want = process.argv[2];
-  var nodes = process.argv[3] && process.argv[3] !== '-' ? process.argv[3].split('') : null;
-  var programs = process.argv[4] ? process.argv[4].split(',') : null;
+  var args = process.argv.slice(2);
+  function arg(name) { var i = args.indexOf(name); if (i === -1) return null; var v = args[i + 1]; args.splice(i, 2); return v; }
+  var vIndex = arg('--variant');
+  var limit = arg('--limit');
+  var want = args[0];
+  var nodes = args[1] && args[1] !== '-' ? args[1].split('') : null;
+  var programs = args[2] ? args[2].split(',') : null;
+  var VARIANTS = null;
+  try { VARIANTS = require('../js/variants.js'); } catch (e) { VARIANTS = null; }
   JOBS.filter(function (j) { return !want || j.id === want; }).forEach(function (j) {
+    var t = VARIANTS && VARIANTS[j.id];
+    var opts = { nodes: nodes, programs: programs, limit: limit ? +limit : undefined, par: t ? t.par : undefined };
+    if (t && vIndex !== null) opts.variant = t.variants[+vIndex];
+    if (!nodes && j.id === 'job02' && !want) {
+      // Unrestricted Job 02 is too big; show the main routes instead.
+      [['ERWUSVPM', null], ['ECMAKOVPRW', null], ['ERWFSVPM', null], ['ERPQTHSVM', null]].forEach(function (r) {
+        console.log('restricted to nodes ' + r[0]);
+        summarize(j, Object.assign({}, opts, { nodes: r[0].split('') }));
+      });
+      return;
+    }
     if (nodes) console.log('restricted to nodes ' + nodes.join('') + (programs ? ' programs ' + programs : ''));
-    summarize(j, { nodes: nodes, programs: programs });
+    summarize(j, opts);
   });
 }
 
-module.exports = { solve: solve, summarize: summarize };
+module.exports = { solve: solve, summarize: summarize, key: key };
