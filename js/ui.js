@@ -310,7 +310,7 @@
       var met = ui.playback && ui.bonusWasMet !== null ? ui.bonusWasMet : E.bonusMet(game);
       var cls = 'chip star';
       var anim = '';
-      if (job.bonus.id === 'ghost') {
+      if ((E.LOSSY_BONUS || ['ghost']).indexOf(job.bonus.id) !== -1) {
         if (!met) {
           cls += ' lost';
           var el = Date.now() - ui.chipLostAt;
@@ -331,6 +331,7 @@
       if (it.type === 'scan') return s.id + ' scans ' + (it.target === st.player ? 'you' : lbl(it.target));
       if (it.type === 'stunned') return s.id + ' stunned';
       if (it.why === 'rest') return s.id + ' rests';
+      if (it.type === 'watch') return s.id + ' watches' + (it.nodes.indexOf(st.player) !== -1 ? ' you' : '');
       return s.id + ' waits';
     }).join(' · ');
   }
@@ -527,19 +528,26 @@
     var list = [];
     st.sentries.forEach(function (s) {
       var it = s.intent;
+      if (it && it.type === 'watch') { list.push({ s: s, it: it, mine: it.nodes.indexOf(st.player) !== -1 }); return; }
       if (!it || (it.type !== 'move' && it.type !== 'scan')) return;
       list.push({ s: s, it: it, mine: it.target === st.player });
     });
     // Intents aimed at you land last.
     list.sort(function (a, b) { return (a.mine ? 1 : 0) - (b.mine ? 1 : 0); });
-    ui.intentOrder = list.map(function (x) { return x.mine; });
+    ui.intentOrder = list.filter(function (x) { return x.it.type !== 'watch' || x.mine; }).map(function (x) { return x.mine; });
     var out = '';
     var ringCount = {};
     list.forEach(function (x, i) {
       var s = x.s, it = x.it;
       var cls = 'intent' + (ui.intentIn && !FAST ? ' intent-in' : '') + (x.mine ? ' at-you' : '');
       var g0 = '<g class="' + cls + '" data-intent="' + s.id + '" style="--i:' + i + '">';
-      if (it.type === 'move') {
+      if (it.type === 'watch') {
+        // A camera's zone: a thin dotted ring on every node it watches.
+        it.nodes.forEach(function (id) {
+          var cz = center(g, id);
+          out += g0 + '<circle class="cam-zone" cx="' + cz.x + '" cy="' + cz.y + '" r="' + (g.N * 0.62) + '" fill="none" stroke="#FF9F43" stroke-width="1.5" stroke-dasharray="1.5 4"/></g>';
+        });
+      } else if (it.type === 'move') {
         var p = center(g, s.pos), q = center(g, it.target);
         var dx = q.x - p.x, dy = q.y - p.y, len = Math.sqrt(dx * dx + dy * dy) || 1;
         var off = g.N * 0.42;
@@ -618,7 +626,7 @@
       if (!ui.shown.s[s.id]) ui.shown.s[s.id] = s.pos;
       var el = fxb.querySelector('.tok-s[data-sentry="' + s.id + '"]');
       var fresh = false;
-      if (!el) { el = document.createElement('div'); el.className = 'tok tok-s'; el.setAttribute('data-sentry', s.id); el.innerHTML = '<span class="sl">' + s.id + '</span><span class="zz">zz</span><span class="why"></span>'; fxb.appendChild(el); fresh = true; }
+      if (!el) { el = document.createElement('div'); el.className = 'tok tok-s' + (s.camera ? ' cam' : ''); el.setAttribute('data-sentry', s.id); el.innerHTML = '<span class="sl">' + s.id + '</span><span class="zz">zz</span><span class="why"></span>'; fxb.appendChild(el); fresh = true; }
       if (!only || only === s.id) {
         var q = tokenPos('s', ui.shown.s[s.id]);
         el.style.transitionDuration = (fresh ? 0 : (ms || 0)) + 'ms';
@@ -634,7 +642,7 @@
         // What drives its next step rides on the token (never on the arrows).
         var it = s.intent || {};
         var why = st.status !== 'playing' || ui.preBreach ? '' : (it.type === 'wait' && it.why === 'rest') || it.why === 'retreat' ? 'rest'
-          : it.type === 'move' && it.why === 'hunt' ? 'HUNT' : it.why === 'noise' ? 'NOISE' : it.why === 'decoy' ? 'LURE' : '';
+          : it.type === 'move' && it.why === 'hunt' ? 'HUNT' : it.why === 'noise' ? 'NOISE' : it.why === 'decoy' ? 'LURE' : s.camera ? 'CAM' : '';
         var w = el.querySelector('.why');
         w.textContent = why;
         w.className = 'why' + (why ? ' on' : '') + (why === 'rest' ? ' rest' : '');
@@ -734,7 +742,7 @@
   function checkBonusChip() {
     var met = E.bonusMet(ui.game);
     var b = ui.game.job.bonus;
-    if (b && b.id === 'ghost' && ui.bonusWasMet === true && !met) {
+    if (b && (E.LOSSY_BONUS || ['ghost']).indexOf(b.id) !== -1 && ui.bonusWasMet === true && !met) {
       ui.chipLostAt = Date.now();
       var chip = app.querySelector('[data-chip="bonus"]');
       if (chip) { chip.classList.add('lost'); if (!FAST) chip.classList.add('lose-anim'); }
@@ -975,7 +983,8 @@
       var next = it.type === 'move' ? 'next: ' + (it.why === 'hunt' ? 'hunts toward ' : it.why === 'retreat' ? 'backs off to ' : 'moves to ') + lbl(it.target)
         : it.type === 'scan' ? 'next: scans ' + lbl(it.target)
           : it.type === 'stunned' ? 'stunned' : it.why === 'rest' ? 'catching its breath' : 'next: waits';
-      bits.push('Sentry ' + s.id + ' patrols ' + s.loop.map(function (n) { return lbl(n); }).join(' → ') + ', ' + next + '.');
+      if (s.camera) bits.push('Camera ' + s.id + ' never moves. It scans you if you end a turn on a node linked to it' + (it.type === 'wait' ? ' (resting this phase)' : '') + '.');
+      else bits.push('Sentry ' + s.id + ' patrols ' + s.loop.map(function (n) { return lbl(n); }).join(' → ') + ', ' + next + '.');
     }
     if (id !== st.player && ui.moves.indexOf(id) === -1 && E.neighbors(game, st.player).indexOf(id) !== -1 && st.actions > 0) {
       bits.push(E.blockedReason(game, id));

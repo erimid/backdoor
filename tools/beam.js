@@ -185,11 +185,27 @@ function better(a, b, want) {
     if (a.bonus !== b.bonus) return a.bonus;
     if (a.payout !== b.payout) return a.payout > b.payout;
     if (a.stars !== b.stars) return a.stars > b.stars;
-    return a.turn < b.turn;
+    if (a.turn !== b.turn) return a.turn < b.turn;
+    return a.unused < b.unused;
   }
   if (a.stars !== b.stars) return a.stars > b.stars;
   if (a.payout !== b.payout) return a.payout > b.payout;
-  return a.turn < b.turn;
+  if (a.turn !== b.turn) return a.turn < b.turn;
+  return a.unused < b.unused;
+}
+
+// Action slots a line leaves unspent at its turn ends (the validator's
+// "unused slots" measure). Ties between equally good lines go to the one
+// that idles less, so the witness shows a line that doesn't have to wait
+// when one exists.
+function unusedSlots(job, opts, labels) {
+  var g = E.newGame(job, { variant: opts.variant, par: opts.par }); g.state.log = [];
+  var n = 0;
+  for (var i = 0; i < labels.length && g.state.status === 'playing'; i++) {
+    if (labels[i] === 'end') n += g.state.actions;
+    apply(g, labels[i]);
+  }
+  return n;
 }
 
 // Keeps the best K by rank. The bonus objective isn't in the rank, so when
@@ -227,6 +243,10 @@ function search(job, opts) {
             won: true, stars: s.count, bonus: !!s.bonus, payout: E.payout(g).total, turn: st.turn, heat: st.heat,
             moves: labels.join(' '), path: st.path.join(''), routeKey: routeKey(g.job, labels, st)
           };
+          if (best && r.bonus === best.bonus && r.payout === best.payout && r.stars === best.stars && r.turn === best.turn) {
+            r.unused = unusedSlots(job, opts, labels);
+            if (best.unused === undefined) best.unused = unusedSlots(job, opts, best.moves.split(' '));
+          }
           if (better(r, best, want)) best = r;
           return;
         }

@@ -277,6 +277,7 @@ body.glitch #app { text-shadow: -2px 0 rgba(255,60,90,0.7), 2px 0 rgba(61,220,25
 .tok-s.flipl .zz { left: auto; right: 20px; }
 .tok-s.flipl .why { left: auto; right: 14px; }
 .tok-s .why.rest { color: var(--muted); border-color: #3A4757; background: var(--panel); font-weight: 400; }
+.tok-s.cam { border-radius: 7px; }
 .tok-s.stunned { background: #4A3520; color: var(--threat-hi); border: 2px dashed var(--threat); box-shadow: none; }
 .tok-s.stunned .zz { display: block; }
 .fxboard.playing .tok-s .why { display: none; }
