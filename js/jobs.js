@@ -672,7 +672,7 @@
     }
   ];
 
-  var HEX_RULE = 'This board is <b>hexagons</b>: a node can link to up to <b>six</b> others, so there is almost always another way round.';
+  var HEX_RULE = 'This board is <b>hexagons</b>: a node can link to up to <b>six</b> others. A link is a short bridge between two tiles; no bridge means a wall. Colours: <span class="t-threat">orange</span> tiles hold a Sentry (dotted: a camera watches it), <b style="color:#FF4D6D">red</b> is a closed firewall or lock (it turns green once open), <b style="color:#2FCB78">green</b> holds cash you can see.';
   var DECOY_WORM_RULE = '<b>Decoy</b> lures the single nearest Sentry within 3 hops. <b>Worm</b> stuns a Sentry that steps on it for 2 turns.';
 
   var HEX_JOBS = [

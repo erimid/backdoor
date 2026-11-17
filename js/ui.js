@@ -233,41 +233,91 @@
       px: function (d) { return gx(d.col); }, py: function (d) { return gy(d.row); }
     };
   }
-  // Hex boards (Jobs 11+): pointy-top cells, odd rows shifted half a cell
-  // right, so every node has up to six neighbours. The board grows down to
-  // fit the job's rows; the width stays the phone's.
+  // Hex boards (Jobs 11+): pointy-top hex tiles, odd rows shifted half a
+  // tile right, so every node has up to six neighbours. The tiles nearly
+  // touch; a link is a short bridge across the gap between two tiles (see
+  // hexBridges), and no bridge means a wall. The board grows down to fit the
+  // job's rows; the width stays the phone's.
+  var HEX_GAP = 5;
   function hexGeometry(job, W, s) {
     var maxCol = 0, maxRow = 0;
     job.nodes.forEach(function (n) { if (n.col > maxCol) maxCol = n.col; if (n.row > maxRow) maxRow = n.row; });
-    var padX = Math.round(6 * s), padY = Math.round(10 * s);
-    var N = Math.round(Math.max(44, Math.min(60, 46 * s)));
-    var dx = (W - 2 * padX - N) / (maxCol + 0.5);
-    var dy = dx * Math.sqrt(3) / 2;
-    var H = Math.round(2 * padY + maxRow * dy + N);
+    var padX = Math.round(4 * s), padY = Math.round(8 * s);
+    var dx = (W - 2 * padX) / (maxCol + 1.5);   // centre-to-centre, and one cell's width
+    var R = dx / Math.sqrt(3);                   // cell circumradius
+    var dy = 1.5 * R;
+    var N = Math.round(2 * R);                   // tile box (square; the hex sits inside)
+    var H = Math.round(2 * padY + maxRow * dy + 2 * R);
+    var cx = function (d) { return padX + (d.col + (d.row % 2 ? 0.5 : 0)) * dx + dx / 2; };
+    var cy = function (d) { return padY + R + d.row * dy; };
     return {
-      W: W, H: H, N: N, hex: true, dx: dx, dy: dy, maxCol: maxCol, maxRow: maxRow, padX: padX, padY: padY,
-      px: function (d) { return padX + (d.col + (d.row % 2 ? 0.5 : 0)) * dx; },
-      py: function (d) { return padY + d.row * dy; }
+      W: W, H: H, N: N, hex: true, dx: dx, dy: dy, R: R, maxCol: maxCol, maxRow: maxRow,
+      // Tile size: the hex inset by half the gap on every side.
+      tw: dx - HEX_GAP, th: (dx - HEX_GAP) * 2 / Math.sqrt(3),
+      cx: cx, cy: cy,
+      px: function (d) { return cx(d) - N / 2; },
+      py: function (d) { return cy(d) - N / 2; }
     };
   }
-  // The honeycomb behind a hex board: every cell, brighter where a node sits.
+  function hexPoints(cx, cy, r) {
+    var pts = [];
+    for (var k = 0; k < 6; k++) {
+      var a = Math.PI / 180 * (60 * k - 90);
+      pts.push((cx + r * Math.cos(a)).toFixed(1) + ',' + (cy + r * Math.sin(a)).toFixed(1));
+    }
+    return pts.join(' ');
+  }
+  // The faint honeycomb behind a hex board: only the empty cells.
   function hexCells(g, job) {
     var used = {};
     job.nodes.forEach(function (n) { used[n.col + ',' + n.row] = true; });
-    var R = g.dx / Math.sqrt(3) - 1.5, out = '';
+    var out = '';
     for (var r = 0; r <= g.maxRow; r++) {
       for (var c = 0; c <= g.maxCol; c++) {
-        var cx = g.px({ col: c, row: r }) + g.N / 2, cy = g.py({ col: c, row: r }) + g.N / 2;
-        if (cx + g.dx / 2 > g.W + 1) continue;
-        var pts = [];
-        for (var k = 0; k < 6; k++) {
-          var a = Math.PI / 180 * (60 * k - 90);
-          pts.push((cx + R * Math.cos(a)).toFixed(1) + ',' + (cy + R * Math.sin(a)).toFixed(1));
-        }
-        out += '<polygon class="hexcell' + (used[c + ',' + r] ? ' on' : '') + '" points="' + pts.join(' ') + '"/>';
+        if (used[c + ',' + r]) continue;
+        var d = { col: c, row: r };
+        if (g.cx(d) + g.dx / 2 > g.W + 1) continue;
+        out += '<polygon class="hexcell" points="' + hexPoints(g.cx(d), g.cy(d), g.R - HEX_GAP / 2) + '"/>';
       }
     }
     return '<g class="hexcells">' + out + '</g>';
+  }
+  // Links on a hex board: a bridge across the gap where two tiles touch, so
+  // you read the board as rooms and doors, not a wiring diagram. A link
+  // between tiles that don't touch (UNKNOWN's shortcut) is a dashed arc.
+  function hexBridges(g, game, walked, jmKey) {
+    var st = game.state, aiId = game.job.ai ? game.job.ai.node : null;
+    var out = '';
+    E.allLinks(game).forEach(function (l) {
+      var p = center(g, l[0]), q = center(g, l[1]);
+      var k = l[0] < l[1] ? l[0] + l[1] : l[1] + l[0];
+      var dxl = q.x - p.x, dyl = q.y - p.y, len = Math.sqrt(dxl * dxl + dyl * dyl);
+      var attrs = ' data-a="' + l[0] + '" data-b="' + l[1] + '"';
+      var ai = l[0] === aiId || l[1] === aiId;
+      if (len > g.dx * 1.2) {
+        var mx = (p.x + q.x) / 2 - dyl * 0.18, my = (p.y + q.y) / 2 + dxl * 0.18;
+        out += '<path class="lk bridge-far' + (ai ? ' ai' : '') + (walked[k] ? ' walked' : '') + '"' + attrs + ' d="M' + p.x.toFixed(1) + ' ' + p.y.toFixed(1) + ' Q' + mx.toFixed(1) + ' ' + my.toFixed(1) + ' ' + q.x.toFixed(1) + ' ' + q.y.toFixed(1) + '"' +
+          (ai && st.ai && st.ai.refused ? ' opacity="0.4"' : '') + '/>';
+        return;
+      }
+      var ang = Math.atan2(dyl, dxl) * 180 / Math.PI;
+      var mx2 = (p.x + q.x) / 2, my2 = (p.y + q.y) / 2;
+      var bl = HEX_GAP + 14;
+      var cls = 'lk bridge' + (ai ? ' ai' : '') + (walked[k] ? ' walked' : '') + (k === jmKey && !FAST ? ' draw-in' : '');
+      out += '<g class="' + cls + '"' + attrs + ' transform="translate(' + mx2.toFixed(1) + ' ' + my2.toFixed(1) + ') rotate(' + ang.toFixed(1) + ')">' +
+        '<rect x="' + (-bl / 2) + '" y="-3.5" width="' + bl + '" height="7" rx="3.5"/>' +
+        '<rect class="core" x="' + (-bl / 2 + 3) + '" y="-1" width="' + (bl - 6) + '" height="2" rx="1"/></g>';
+    });
+    return '<g class="bridges">' + out + '</g>';
+  }
+  // Which nodes a camera watches, and which a Sentry stands on (hex colours).
+  function hexThreats(game) {
+    var st = game.state, watched = {}, occ = {};
+    st.sentries.forEach(function (s) {
+      occ[s.pos] = true;
+      if (s.intent && s.intent.type === 'watch' && st.status === 'playing') s.intent.nodes.forEach(function (n) { watched[n] = true; });
+    });
+    return { watched: watched, occ: occ };
   }
   function tile(g, id) { var d = def(id); return { x: g.px(d), y: g.py(d), N: g.N }; }
   function center(g, id) { var t = tile(g, id); return { x: t.x + t.N / 2, y: t.y + t.N / 2 }; }
@@ -457,6 +507,7 @@
       else if (known && id === info.exit) c.push('exit');
       else if (!known) c.push('exitc');
     }
+    if (d.cache && !ns.hidden && !st.taken[id] && d.type !== 'target') c.push('loot');
     if (st.player === id) c.push('you');
     else if (ui.picks.indexOf(id) !== -1) c.push('pick');
     else if (!ui.selected && ui.moves.indexOf(id) !== -1) c.push('valid');
@@ -531,7 +582,7 @@
     var jm = ui.justMoved; var jmKey = jm ? (jm[0] < jm[1] ? jm[0] + jm[1] : jm[1] + jm[0]) : null;
     var aiId = job.ai ? job.ai.node : null;
     var base = '', aiLinks = '', walkedLinks = '';
-    E.allLinks(game).forEach(function (l) {
+    if (!g.hex) E.allLinks(game).forEach(function (l) {
       var p = center(g, l[0]), q = center(g, l[1]);
       var k = l[0] < l[1] ? l[0] + l[1] : l[1] + l[0];
       var attrs = ' data-a="' + l[0] + '" data-b="' + l[1] + '"';
@@ -552,13 +603,32 @@
     svg += '<g class="links-walked" stroke="#3DDCFF" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.85">' + walkedLinks + '</g>';
 
     // Intents: none while the enemy phase plays or the BREACH is held back.
-    if (!ui.playback && !ui.preBreach && st.status === 'playing') svg += renderIntents(g);
+    var top = '';
+    if (g.hex) {
+      // On a hex board the bridges and Sentry intents sit above the tiles.
+      top = '<svg class="layer top" width="' + g.W + '" height="' + g.H + '" viewBox="0 0 ' + g.W + ' ' + g.H + '" aria-hidden="true">' + hexBridges(g, game, walked, jmKey);
+      if (!ui.playback && !ui.preBreach && st.status === 'playing') top += renderIntents(g);
+      top += '</svg>';
+    } else if (!ui.playback && !ui.preBreach && st.status === 'playing') svg += renderIntents(g);
     svg += '</svg>';
 
     var nodes = '';
+    var thr = g.hex ? hexThreats(game) : null;
     job.nodes.forEach(function (d) {
+      if (g.hex) {
+        var cls = nodeClasses(d.id);
+        if (thr.occ[d.id]) cls += ' occ';
+        if (thr.watched[d.id]) cls += ' watched';
+        var w = g.tw, h = g.th;
+        var hx = '<svg class="hx" viewBox="0 0 100 115.47" preserveAspectRatio="none" aria-hidden="true">' +
+          '<polygon class="hx-f" points="50,2 98,29.4 98,86.1 50,113.5 2,86.1 2,29.4"/>' +
+          '<polygon class="hx-r" points="50,9 92,33.4 92,82.1 50,106.5 8,82.1 8,33.4"/></svg>';
+        nodes += '<button class="' + cls + '" data-act="node" data-node="' + d.id + '" aria-label="' + esc(nodeAria(d.id)) + '" style="left:' + (g.cx(d) - w / 2).toFixed(1) + 'px;top:' + (g.cy(d) - h / 2).toFixed(1) + 'px;width:' + w.toFixed(1) + 'px;height:' + h.toFixed(1) + 'px">' + hx + nodeInner(d.id) + '</button>';
+        return;
+      }
       nodes += '<button class="' + nodeClasses(d.id) + '" data-act="node" data-node="' + d.id + '" aria-label="' + esc(nodeAria(d.id)) + '" style="left:' + g.px(d) + 'px;top:' + g.py(d) + 'px;width:' + g.N + 'px;height:' + g.N + 'px">' + nodeInner(d.id) + '</button>';
     });
+    nodes += top;
 
     return '<div class="board' + (g.hex ? ' hex' : '') + (breachShown() ? ' breach' : '') + '" style="width:' + g.W + 'px;height:' + g.H + 'px">' + svg + nodes + '</div>';
   }
@@ -582,7 +652,9 @@
       var cls = 'intent' + (ui.intentIn && !FAST ? ' intent-in' : '') + (x.mine ? ' at-you' : '');
       var g0 = '<g class="' + cls + '" data-intent="' + s.id + '" style="--i:' + i + '">';
       if (it.type === 'watch') {
-        // A camera's zone: a thin dotted ring on every node it watches.
+        // A camera's zone: a thin dotted ring on every node it watches. (On
+        // a hex board the watched tiles are coloured instead.)
+        if (g.hex) return;
         it.nodes.forEach(function (id) {
           var cz = center(g, id);
           out += g0 + '<circle class="cam-zone" cx="' + cz.x + '" cy="' + cz.y + '" r="' + (g.N * 0.62) + '" fill="none" stroke="#FF9F43" stroke-width="1.5" stroke-dasharray="1.5 4"/></g>';
@@ -600,7 +672,8 @@
       } else {
         var c = center(g, it.target);
         var n = ringCount[it.target] = (ringCount[it.target] || 0) + 1;
-        out += g0 + '<circle class="scan-ring" cx="' + c.x + '" cy="' + c.y + '" r="' + (g.N * 0.7 + (n - 1) * 6) + '" fill="none" stroke="#FF9F43" stroke-width="2.5" stroke-dasharray="4 4"/></g>';
+        if (g.hex) out += g0 + '<polygon class="scan-ring" points="' + hexPoints(c.x, c.y, g.R + 1 + (n - 1) * 5) + '" fill="none" stroke="#FF9F43" stroke-width="2.5" stroke-dasharray="4 4"/></g>';
+        else out += g0 + '<circle class="scan-ring" cx="' + c.x + '" cy="' + c.y + '" r="' + (g.N * 0.7 + (n - 1) * 6) + '" fill="none" stroke="#FF9F43" stroke-width="2.5" stroke-dasharray="4 4"/></g>';
       }
     });
     return out;
@@ -644,7 +717,7 @@
     var g = ui.geo, t = tile(g, node);
     if (kind === 'you') return { x: t.x + t.N / 2 - 7, y: t.y - 7 };
     // On a hex board the tiles are round: sit on the rim, top right.
-    if (g.hex) return { x: t.x + t.N * 0.85 - 14, y: t.y + t.N * 0.15 - 14 };
+    if (g.hex) return { x: t.x + t.N / 2 + g.tw / 2 - 20, y: t.y + t.N * 0.18 - 12 };
     return { x: t.x + t.N - 14, y: t.y - 14 };
   }
 
@@ -1261,7 +1334,7 @@
       steps.push([0, function () {
         sfx('win');
         flashClass(tileEl(exit), 'exitflash', 900);
-        app.querySelectorAll('.board line.lk').forEach(function (ln) {
+        app.querySelectorAll('.board .lk').forEach(function (ln) {
           var k = Math.min(d[ln.getAttribute('data-a')] || 0, d[ln.getAttribute('data-b')] || 0);
           setTimeout(function () { ln.classList.add('cyanflash'); }, k * 40);
         });
@@ -1533,7 +1606,7 @@
       sfx('ai');
       var aiNode = game.job.ai && game.job.ai.node;
       if (aiNode) flashClass(tileEl(aiNode), 'aipulse', GL + 100);
-      app.querySelectorAll('.board line.lk').forEach(function (ln, i) { if (i % 2 === 0) flashClass(ln, 'vflicker', GL); });
+      app.querySelectorAll('.board .lk').forEach(function (ln, i) { if (i % 2 === 0) flashClass(ln, 'vflicker', GL); });
     }]);
     steps.push([d0 + GL, function () {
       document.body.classList.remove('glitch');
