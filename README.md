@@ -1,14 +1,25 @@
-# Backdoor: hacking minigame prototype (v2)
+# Backdoor: hacking minigame prototype (v3)
 
 A throwaway prototype of the hacking minigame from the Backdoor game app. It
 answers one question: **is hacking fun enough that you want another round?**
 
 v2's shape is **get in, get greedy, get out**: sneak to the target, Extract,
 then run for a different exit while the Sentries hunt you and the trace clock
-ticks. Two handmade jobs, each with many solver-checked seeded variants:
+ticks. Ten handmade jobs that get harder as you go, each with solver-checked
+seeded variants:
 
-- **Job 01 · Corner Store POS**: the tutorial. Moving, scans, Brute, a honeypot, the BREACH run.
-- **Job 02 · City Bank, Branch 7**: every program, a lock with a password clue, and the AI's deals.
+| Job | Name | What's new | Bonus ★ |
+| --- | --- | --- | --- |
+| 01 | Corner Store POS | The tutorial: moving, scans, Brute, a honeypot, the BREACH run | Ghost |
+| 02 | City Bank, Branch 7 | Every program, a lock with a password clue, UNKNOWN's deals | Worm stun |
+| 03 | Suds & Spin Laundromat | **Cameras**: fixed, watch every linked node | Greedy (every $ cache) |
+| 04 | Level 3 Parking Garage | A **ring** patrolled both ways; cut through the middle | Ghost |
+| 05 | Channel 9 Newsroom | A lock whose code is across the map, **two** honeypots in three ? nodes | Fast (out by turn 9) |
+| 06 | Greenleaf Pharmacy | Two patrols, a firewall, Decoy instead of Brute | Quiet (no Brute) |
+| 07 | Golden Ace Casino | UNKNOWN returns, plus a camera and two patrols | Cool (heat ≤ 5) |
+| 08 | Port of Harlow | Three patrols, two firewalls, two Decoys, the biggest board | Worm stun |
+| 09 | Federal Reserve, Vault 4 | You **start at 2 heat**, a locked vault door, a camera, two patrols, three exits | Fast (out by turn 11) |
+| 10 | Nimbus Data Center | The finale: three cameras and a guard, **three** possible exits | Cool (heat ≤ 4) |
 
 ## Play it
 
@@ -86,6 +97,78 @@ ranks states by `3 × distance + heat + 4 × detected − cash / 50` (+5 per AI
 deal), keeps 60 (150 if that fails), and reserves a third of the beam for
 states that already meet the bonus objective.
 
+## v3 changes
+
+Fixes for the five issues v2 left open, then eight new jobs.
+
+1. **Refusing UNKNOWN pays again (Job 02).** PAR now drops by *half* of
+   UNKNOWN's cut (trust offer 1 on a $800 PAR night: PAR $700, not $600), and
+   the shortcut only lasts until you Extract (`untilExtract` on the offer:
+   UNKNOWN pulls the link once you hold the data). Two new links, CAM-03–WIFI
+   and ADMIN-PC–SWITCH, give the refused routes a second way round each
+   Sentry. On the canonical night the spec bot now wins 54% refusing both
+   deals (★2 28%) and 53% trusting offer 1 (★2 21%); trusting both wins
+   most (84%) but never reaches ★2, so it is the safe way out, not the way
+   to the stars.
+2. **No more trust-only nights.** The validator's check (e) now also runs the
+   spec bot (60 seeds, no Sentry cost) trusting and refusing offer 1, and
+   rejects a night if the two are more than 25 points apart.
+3. **Two hunters can't hold a dead-end doorway.** When the resting Sentry on
+   a pocket's only doorway can't back off because the other hunter is behind
+   it, the one behind yields to a free node and the resting one backs into
+   its place (`untangle`, run in that order). And a node a Sentry just backed
+   off from is not refilled by another Sentry in the same phase
+   (`holdWindow`), so every scan really buys you a phase. The fuzz that found
+   the v2 spells (0.8 to 1.2% of BREACH turn starts) now finds none
+   (`tests/v3.test.js`).
+4. **Less waiting in Job 02.** The same two links: turns ending on the start
+   node drop from about 29% to about 20% on the canonical night (20.2%
+   refusing, 20.4% trusting offer 1; the target is 20%, so this is right at
+   the line).
+5. **Fewer idle slots in Job 01.** TILL-1 now holds a $100 cache (a use for
+   the action you would have banked), and when two witness lines tie on
+   payout, stars and turn, the beam keeps the one that idles less. Unused
+   slots: 28.8% to 14.7%.
+
+New rules for the new jobs (all in `js/engine.js`, data in `js/jobs.js`):
+
+- **Cameras** (`camera: true` on a Sentry, square token, label CAM). A camera
+  never moves and can't be lured, heard or Worm-stunned. It watches every node
+  linked to it (dotted rings): end a turn on one and it scans you (+3, Spoof
+  holds), then rests a phase. Passing through is fine.
+- **Bonus objectives**: Greedy (every $ cache, hidden ones included), Quiet
+  (never Brute), Fast (out by turn N), Cool (heat ≤ N at the end), plus v2's
+  Ghost and Worm stun. The chip for one you can lose (Ghost, Quiet, Fast,
+  Cool) starts lit and goes out when you lose it.
+- **Start heat** (`startHeat`, Job 09).
+- **Dealt offsets** (`offsets` on a Sentry): only those loop points are dealt
+  as variants, so long ring patrols don't multiply the variant count.
+
+### v3 results
+
+`npm run validate` (all ten jobs, about 45 min on 4 cores) and the spec bot
+(`npm run bot`, 100 seeds, canonical night, refusing every offer; "trust 1"
+trusts offer 1 only):
+
+| Job | Nights shipped | PAR | Canonical best line | Spec bot win | ★2 | Turns on start node |
+| --- | --- | --- | --- | --- | --- | --- |
+| 01 | 24 / 24 | $550 | 3★ $640, turn 4 | 100% | 33% | 17% |
+| 02 | 94 / 192 | $850 | 3★ $970, turn 7 | 54% (trust 1: 53%, trust both: 84%) | 28% (trust 1: 21%, both: 0%) | 20% |
+| 03 | 23 / 24 | $750 | 3★ $840, turn 6 | 87% | 0% | 19% |
+| 04 | 49 / 64 | $650 | 3★ $730, turn 9 | 78% | 76% | 25% |
+| 05 | 92 / 96 | $1200 | 3★ $1330, turn 7 | 77% | 18% | 26% |
+| 06 | 64 / 64 | $800 | 3★ $870, turn 6 | 56% | 1% | 22% |
+| 07 | 42 / 64 | $1050 | 3★ $1100, turn 6 | 48% (trust 1: 49%) | 44% (trust 1: 14%) | 12% |
+| 08 | 58 / 64 | $1400 | 3★ $1530, turn 8 | 30% | 5% | 31% |
+| 09 | 43 / 48 | $1600 | 3★ $1650, turn 8 | 22% | 2% | 33% |
+| 10 | 16 / 24 | $800 | 3★ $870, turn 8 | 8% | 0% | 48% |
+
+Every shipped night has a 3★ witness line at PAR, a second route, and a
+sighted-bot win rate of at least 25% (check e). The spec bot's ★2 is low on
+some jobs because its greedy play rarely beats PAR; the stars are for
+players who plan. The sections "What the validator found" and "What the bot
+found" further down are the v2 write-up, kept for history.
+
 ## Rules: where v2 differs from the design doc
 
 These are the places where the build differs from, or adds to, the game
@@ -114,8 +197,8 @@ design document. Each one is easy to undo in `js/jobs.js` or `js/engine.js`.
    a Sentry with a Worm). Heat no longer costs stars directly.
 7. **AI deals.** Refusing UNKNOWN is free (the v1 tip-off heat is gone).
    Trusting costs a 25% cut of the payout per deal, as specced, **and PAR
-   drops by the same share** (rounded down to $10): trust offer 1 on a $800
-   PAR night and your PAR is $600. The cut costs you dollars (best payout,
+   drops by half that share** (v3; rounded down to $10): trust offer 1 on a
+   $800 PAR night and your PAR is $700. (v2 dropped it by the whole share.) The cut costs you dollars (best payout,
    NEW BEST), not the stars. Without the PAR change almost no trusted run
    could reach ★2, even played perfectly (the canonical night's best trusted
    line paid $730 against PAR $800), so trusting was a trap, not a price. An
@@ -161,15 +244,8 @@ design document. Each one is easy to undo in `js/jobs.js` or `js/engine.js`.
     night, biased toward hiding on UNKNOWN): from every reachable turn start,
     waiting frees a move within 3 enemy phases. On the previous rules the
     same test finds a Job 02 position boxed in for 5+ phases.
-    **Known limit:** that guarantee holds for the test's play policy, not for
-    every engine state. During BREACH two hunting Sentries can hold a
-    one-door pocket (CAM-03 with ENTRY burned, or KIOSK with AUTH-01 still
-    locked): one scans from the doorway and then tries to leave through the
-    node the other is waiting on, the other tries to step in, and neither
-    gets past. A fuzz with heat and turn held down finds such spells on
-    about 0.8% of Job 02 turn starts (Job 01 is clean). In real play the
-    trace clock and the scans finish you within two phases, so it is a
-    death trap for hiding in a dead end, not a softlock.
+    v2's known limit, two hunters holding a one-door pocket during BREACH,
+    is fixed in v3 (see "v3 changes", item 3).
 12. **Extract is a free action.** It uses no action (you still need one left,
     like everything else in a turn), so the turn you download the data you
     can start running. With Extract costing an action, the greedy bot spent

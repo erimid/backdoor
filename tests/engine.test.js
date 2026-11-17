@@ -347,8 +347,8 @@ test('Brute noise: a Sentry on the barrier scans it; out-of-range Sentries ignor
   ok(E.runProgram(g, 'brute', 'F'));
   assert.deepEqual(sentry(g, 'A').intent, { type: 'scan', target: 'F', why: 'noise', atPlayer: false });
 
-  // Job 02: A on SWITCH is 1 hop from the firewall, B on KIOSK is 4 hops away.
-  const h = setup(job02, st => { st.player = 'W'; st.sentries[1].pos = 'K'; st.sentries[1].loopIndex = 0; });
+  // Job 02: A on SWITCH is 1 hop from the firewall, B on BACKUP is 4 hops away.
+  const h = setup(job02, st => { st.player = 'W'; st.sentries[1].pos = 'Q'; st.sentries[1].loopIndex = 0; });
   const before = JSON.stringify(sentry(h, 'B').intent);
   const r = ok(E.runProgram(h, 'brute', 'F'));
   assert.deepEqual(find(r, 'noise').sentries, ['A']);
@@ -857,7 +857,7 @@ test('the AI offers the shortcut once; trusting opens it for a 25% cut', () => {
   const offer = find(r, 'aiOffer');
   assert.equal(offer.offer, 'shortcut');
   assert.match(offer.voice, /ledger is bait/);
-  assert.match(offer.terms, /takes 25% of the payout, and PAR drops by the same share\./);
+  assert.match(offer.terms, /takes 25% of the payout, and PAR drops by half that\./);
   assert.doesNotMatch(offer.terms, /another|\{/);
   assert.equal(E.move(g, 'R').ok, false, 'must answer first');
   assert.equal(E.endTurn(g).ok, false, 'must answer first');
@@ -925,7 +925,7 @@ test('offer terms say "another" only after a deal was taken', () => {
   const r = ok(E.extract(g));
   const offer = find(r, 'aiOffer');
   assert.equal(offer.offer, 'freeze');
-  assert.match(offer.terms, /UNKNOWN takes 25%, and PAR drops by the same share\./);
+  assert.match(offer.terms, /UNKNOWN takes 25%, and PAR drops by half that\./);
   assert.doesNotMatch(offer.terms, /another/);
   const a = ok(E.answerAI(g, true));
   assert.match(find(a, 'ai').text, /It takes 25%\./);
@@ -939,17 +939,17 @@ test('offer terms say "another" only after a deal was taken', () => {
   assert.match(find(a2, 'ai').text, /It takes another 25%\./);
 });
 
-test('the cut is per offer (25% each, as specced), and PAR drops by the same share', () => {
+test('the cut is per offer (25% each, as specced), and PAR drops by half of it', () => {
   const g = setup(job02, st => { st.cash = 100; st.turn = 7; st.ai.deals = 1; st.ai.answers.shortcut = 'trusted'; }, { par: 800 });
-  // 950 * 0.75 = 712.5 -> 710, so the cut line is -240. PAR 800 * 0.75 = 600.
+  // 950 * 0.75 = 712.5 -> 710, so the cut line is -240. PAR 800 * 0.875 = 700.
   assert.equal(E.payout(g).cut, -240);
   assert.equal(E.payout(g).total, 710);
-  assert.equal(E.payout(g).par, 600);
+  assert.equal(E.payout(g).par, 700);
   assert.equal(E.payout(g).basePar, 800);
   g.state.ai.deals = 2; g.state.ai.answers.freeze = 'trusted';
-  // 950 * 0.50 = 475 -> 480; PAR 400.
+  // 950 * 0.50 = 475 -> 480; PAR 800 * 0.75 = 600.
   assert.equal(E.payout(g).total, 480);
-  assert.equal(E.payout(g).par, 400);
+  assert.equal(E.payout(g).par, 600);
   // Refusing keeps the full PAR.
   const h = setup(job02, st => { st.cash = 100; st.turn = 7; }, { par: 800 });
   assert.equal(E.payout(h).par, 800);
@@ -957,7 +957,7 @@ test('the cut is per offer (25% each, as specced), and PAR drops by the same sha
 
 test('a trusted run that clears its lowered PAR earns ★2', () => {
   // A won run worth 950 before the cut: 710 after a 25% cut, under the full
-  // PAR of 800 but over the lowered 600.
+  // PAR of 800 but over the lowered 700.
   const g = setup(job02, st => { st.cash = 100; st.turn = 7; st.ai.deals = 1; st.ai.answers.shortcut = 'trusted'; st.status = 'won'; st.hasData = true; }, { par: 800 });
   const s = E.stars(g);
   assert.equal(s.par, true);
@@ -1016,8 +1016,13 @@ function randomVariant(job, rnd) {
   const contents = job.bag.contents.slice();
   for (let i = contents.length - 1; i > 0; i--) { const k = rnd(i + 1); [contents[i], contents[k]] = [contents[k], contents[i]]; }
   const bag = {}; job.bag.nodes.forEach((n, i) => { bag[n] = contents[i]; });
-  const offsets = {}; job.sentries.forEach(s => { offsets[s.id] = rnd(s.patrol.length); });
-  return { id: 'fz', bag, offsets, exit: rnd(2) };
+  // Dealt offsets only (a ring job lists them), and never two Sentries on one
+  // start node (the validator rejects those nights).
+  for (let tries = 0; ; tries++) {
+    const offsets = {}; job.sentries.forEach(s => { offsets[s.id] = s.offsets ? s.offsets[rnd(s.offsets.length)] : rnd(s.patrol.length); });
+    const starts = job.sentries.map(s => s.patrol[offsets[s.id] % s.patrol.length]);
+    if (new Set(starts).size === starts.length || tries > 20) return { id: 'fz', bag, offsets, exit: rnd(job.exits.length) };
+  }
 }
 
 test('random play on random variants never breaks the rules (fuzz)', () => {
@@ -1066,12 +1071,8 @@ test('no softlock (fuzz): under this play policy, waiting frees a move within 3 
   // toward hiding on UNKNOWN (the spot two Sentries could seal). At each turn
   // start, end turns in place (heat and turn reset so only Sentries matter)
   // until a legal move appears.
-  // Scope: this is a regression guard for the trusted-UNKNOWN seal, not an
-  // engine-wide guarantee. `unbox` does not stop two hunting Sentries from
-  // trading places in a one-door pocket (e.g. CAM-03 with ENTRY burned, or
-  // KIOSK with AUTH-01 locked): with heat and turn held down that can hold
-  // the doorway shut indefinitely. In real play the trace clock and scans
-  // end the run first (it's a death trap, not a softlock); see README rule 11.
+  // Scope: a regression guard for the trusted-UNKNOWN seal. The two-hunter
+  // pocket (v2's known limit) has its own fuzz in tests/v3.test.js.
   const V = require('../js/variants.js');
   let seed = 4242;
   const rnd = n => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return Math.floor(seed / 0x80000000 * n); };
@@ -1093,13 +1094,15 @@ test('no softlock (fuzz): under this play policy, waiting frees a move within 3 
           E.endTurn(g);
           if (g.state.status !== 'playing') break;
           const h = B.copy(g); let phases = 0;
-          while (!E.legalMoves(h).length && phases <= 4) {
+          while (!E.legalMoves(h).length && phases <= 5) {
             h.state.heat = 0; h.state.turn = 1;
             if (h.state.ai && h.state.ai.pending) E.answerAI(h, false);
             E.endTurn(h); phases++;
           }
           checked++; worst = Math.max(worst, phases);
-          assert.ok(phases <= 3, `${job.id}: boxed in for ${phases}+ phases at ${g.state.player}`);
+          // 4 when a blocker was Worm-stunned: two stunned phases, one scan,
+          // then it steps off (Job 08 can Worm ENTRY itself).
+          assert.ok(phases <= 4, `${job.id}: boxed in for ${phases}+ phases at ${g.state.player}`);
           continue;
         }
         B.apply(g, acts[rnd(acts.length)]);

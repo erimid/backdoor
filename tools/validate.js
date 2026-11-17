@@ -45,6 +45,8 @@ var FAIR_SENTRY_COST = 3;
 var BOT_SEEDS_CANON = 200;
 var BOT_MIN = 0.25;
 var BOT_GAP = 0.25;
+// Seeds per night for the spec bot's trust/refuse gap (check e, AI jobs).
+var SPEC_SEEDS = 60;
 
 // ---------- worker side ----------
 
@@ -63,6 +65,17 @@ function runTask(t) {
       var wt2 = 0;
       for (var s2 = 1; s2 <= n; s2++) if (BOT.run(job, t.variant, t.par, 'shortcut=trust', s2).status === 'won') wt2++;
       r.trust = wt2 / n;
+      // The spec's own bot (no Sentry cost) must also find trusting and
+      // refusing offer 1 within BOT_GAP of each other on this night, so a
+      // typical player never has to trust UNKNOWN to stand a chance.
+      BOT.setSentryCost(0);
+      var sr = 0, stt = 0;
+      for (var s3 = 1; s3 <= SPEC_SEEDS; s3++) {
+        if (BOT.run(job, t.variant, t.par, 'refuse', s3).status === 'won') sr++;
+        if (BOT.run(job, t.variant, t.par, 'shortcut=trust', s3).status === 'won') stt++;
+      }
+      BOT.setSentryCost(FAIR_SENTRY_COST);
+      r.specRefuse = sr / SPEC_SEEDS; r.specTrust = stt / SPEC_SEEDS;
     }
   }
   return { id: t.id, result: r, ms: Date.now() - t0 };
@@ -101,11 +114,17 @@ function rawVariants(job) {
   job.sentries.forEach(function (s) {
     var n = [];
     offs.forEach(function (o) {
-      for (var k = 0; k < s.patrol.length; k++) { var c = Object.assign({}, o); c[s.id] = k; n.push(c); }
+      // A Sentry may list the loop offsets it can be dealt (`offsets`);
+      // otherwise every point on its loop is a variant.
+      var ks = s.offsets || s.patrol.map(function (_, k) { return k; });
+      ks.forEach(function (k) { var c = Object.assign({}, o); c[s.id] = k; n.push(c); });
     });
     offs = n;
   });
   var exits = (job.exits || [null]).map(function (_, i) { return i; });
+  // Repeated bag contents (two honeypots) give the same bag twice.
+  var seenBag = {};
+  bags = bags.filter(function (b) { var k = JSON.stringify(b); if (seenBag[k]) return false; seenBag[k] = 1; return true; });
   var out = [];
   bags.forEach(function (bag) {
     offs.forEach(function (o) {
@@ -124,6 +143,8 @@ function staticReject(job, variant) {
   var g = E.newGame(job, { variant: variant });
   var entry = B.entryOf(g.job);
   var near = E.neighbors(g, entry);
+  var spots = g.state.sentries.map(function (s) { return s.pos; });
+  if (spots.some(function (p, i) { return spots.indexOf(p) !== i; })) return 'c:two Sentries start on one node';
   for (var i = 0; i < g.state.sentries.length; i++) {
     var s = g.state.sentries[i];
     if (s.pos === entry || near.indexOf(s.pos) !== -1) return 'c:sentry ' + s.id + ' starts next to ENTRY';
@@ -259,7 +280,11 @@ async function validateJob(P, jobIndex) {
     if (bots[i].trust === null) return;
     if (bots[i].trust < BOT_MIN) return reject(v, 'e:bot trusting offer 1 wins ' + Math.round(100 * bots[i].trust) + '%');
     if (Math.abs(bots[i].trust - bots[i].win) > BOT_GAP + 1e-9) {
-      reject(v, 'e:offer 1 trust ' + Math.round(100 * bots[i].trust) + '% vs refuse ' + Math.round(100 * bots[i].win) + '%');
+      return reject(v, 'e:offer 1 trust ' + Math.round(100 * bots[i].trust) + '% vs refuse ' + Math.round(100 * bots[i].win) + '%');
+    }
+    v.specGap = bots[i].specTrust - bots[i].specRefuse;
+    if (Math.abs(v.specGap) > BOT_GAP + 1e-9) {
+      reject(v, 'e:spec bot trusting offer 1 ' + Math.round(100 * bots[i].specTrust) + '% vs refusing ' + Math.round(100 * bots[i].specRefuse) + '%');
     }
   });
 
@@ -379,7 +404,7 @@ async function main() {
   P.close();
   var MIN = { job01: 8, job02: 40 };
   reports.forEach(function (r) {
-    if (MIN[r.job] && r.accepted < MIN[r.job]) failed.push(r.job + ' has ' + r.accepted + ' variants (need ' + MIN[r.job] + ')');
+    if (r.accepted < (MIN[r.job] || 4)) failed.push(r.job + ' has ' + r.accepted + ' variants (need ' + (MIN[r.job] || 4) + ')');
   });
   console.log('\n== summary (' + ((Date.now() - t0) / 1000).toFixed(1) + ' s)');
   reports.forEach(function (r) {

@@ -49,6 +49,8 @@
   var STAR_HEAT = 4;            // v1 star rule, unused in v2; kept for old imports
   var CACHE_VALUE = 100;
   var AI_CUT = 0.25;
+  // PAR drops by half of UNKNOWN's cut (see parOf).
+  var PAR_SHARE = 0.5;
   var PAY = { heat: 40, turn: 30 };
 
   var PROGRAMS = {
@@ -170,7 +172,7 @@
       turn: 1,
       actions: ACTIONS_PER_TURN,
       banked: false,
-      heat: 0,
+      heat: job.startHeat || 0,
       player: entry,
       hasData: false,
       charges: charges,
@@ -180,7 +182,7 @@
       extraLinks: [],
       sentries: job.sentries.map(function (s) {
         return {
-          id: s.id, pos: s.start, loop: s.patrol.slice(), loopIndex: s.loopIndex || 0,
+          id: s.id, pos: s.start, loop: s.patrol.slice(), loopIndex: s.loopIndex || 0, camera: !!s.camera,
           stun: 0, intent: null, cooldown: false, lure: null, noisy: false
         };
       }),
@@ -303,7 +305,7 @@
   function claimDecoy(game, node) {
     var best = null; var bestD = Infinity;
     game.state.sentries.forEach(function (s) {
-      if (s.stun > 0 || hasLure(game, s)) return;
+      if (s.camera || s.stun > 0 || hasLure(game, s)) return;
       var d = sentryDistances(game, s.pos)[node];
       if (d === undefined || d > DECOY_RANGE) return;
       if (d < bestD) { best = s; bestD = d; }
@@ -390,6 +392,13 @@
   function planIntent(game, sentry) {
     var st = game.state;
     if (sentry.stun > 0) return { type: 'stunned' };
+    // A camera never moves. It watches every node linked to it: end a turn
+    // on one and it scans you in the enemy phase (then rests a phase, like a
+    // Sentry that just scanned you). Decoys, noise and BREACH don't move it.
+    if (sentry.camera) {
+      if (sentry.cooldown) return { type: 'wait', why: 'rest' };
+      return { type: 'watch', nodes: neighbors(game, sentry.pos) };
+    }
     var it;
     if (hasLure(game, sentry) && (it = towards(game, sentry, sentry.lure, 'decoy'))) return it;
     if (sentry.noisy && st.noise && (it = towards(game, sentry, st.noise, 'noise'))) return it;
@@ -440,7 +449,58 @@
   function planAll(game) {
     assignDecoys(game);
     game.state.sentries.forEach(function (s) { planSentry(game, s); });
+    untangle(game);
+    holdWindow(game);
     unbox(game);
+  }
+
+  // BREACH, two hunters in a one-door pocket (CAM-03 with ENTRY burned, KIOSK
+  // with AUTH-01 locked): the resting Sentry on the doorway can't back off
+  // because the only way out is the node the other hunter is waiting on, and
+  // that one wants the doorway. The one behind yields to a free node of its
+  // own (the farthest from you first) and the resting one backs into the
+  // node it left, so the doorway opens for a phase. `after` makes the enemy
+  // phase run the yielding Sentry first.
+  function untangle(game) {
+    var st = game.state;
+    if (!st.breach || st.status !== 'playing') return;
+    var dp = sentryDistances(game, st.player);
+    st.sentries.forEach(function (x) {
+      var it = x.intent;
+      if (x.camera || !x.cooldown || x.stun > 0 || !it) return;
+      if (neighbors(game, x.pos).indexOf(st.player) === -1) return;
+      var free = it.type === 'move' && it.target !== st.player && !sentryAt(game, it.target);
+      if (free) return;
+      st.sentries.forEach(function (y) {
+        if (y === x || x.intent.after || !y.intent || y.intent.type !== 'move' || y.intent.target !== x.pos) return;
+        if (neighbors(game, x.pos).indexOf(y.pos) === -1) return;
+        var taken = st.sentries.map(function (s) { return s.intent && s.intent.type === 'move' ? s.intent.target : null; });
+        var c = sentryNeighbors(game, y.pos).filter(function (n) {
+          return n !== x.pos && n !== st.player && n !== st.exit && !sentryAt(game, n) && taken.indexOf(n) === -1;
+        });
+        if (!c.length) return;
+        c.sort(function (a, b) { return (dp[b] === undefined ? 99 : dp[b]) - (dp[a] === undefined ? 99 : dp[a]); });
+        y.intent = { type: 'move', target: c[0], why: 'retreat', atPlayer: false };
+        x.intent = { type: 'move', target: y.pos, why: 'retreat', atPlayer: false, after: y.id };
+      });
+    });
+  }
+
+  // Every scan buys you a phase: when a Sentry backs off a node next to you,
+  // no other Sentry steps onto that node in the same enemy phase (it waits
+  // instead), so the gap the back-off opens is real.
+  function holdWindow(game) {
+    var st = game.state;
+    if (!st.breach) return;
+    var left = st.sentries.filter(function (s) { return s.intent && s.intent.why === 'retreat' && s.intent.type === 'move'; })
+      .map(function (s) { return s.pos; });
+    if (!left.length) return;
+    st.sentries.forEach(function (y) {
+      var it = y.intent;
+      if (!it || it.type !== 'move' || it.why === 'retreat' || it.why === 'decoy') return;
+      if (left.indexOf(it.target) === -1) return;
+      y.intent = { type: 'wait', why: 'blocked', atPlayer: false };
+    });
   }
 
   // No softlock: if Sentries are the reason you can't move at all (every node
@@ -448,11 +508,10 @@
   // of those Sentries is about to leave, the first resting one steps off to a
   // free node instead. A Sentry that isn't resting scans you first and rests
   // the phase after, so you are never boxed in for more than two enemy
-  // phases (three if a blocker is stunned). This matters most on UNKNOWN,
+  // phases (four if a blocker was Worm-stunned). This matters most on UNKNOWN,
   // which Sentries can't enter: two of them on its doorways would otherwise
-  // seal you in. Limit: it does not untangle two hunters trading places in a
-  // one-door pocket (one scans from the doorway, the other waits behind it);
-  // that holds the doorway until the trace clock or heat ends the run.
+  // seal you in. Two hunters stuck in a one-door pocket are handled by
+  // untangle (above).
   function unbox(game) {
     var st = game.state;
     if (st.status !== 'playing') return;
@@ -468,7 +527,7 @@
     var taken = st.sentries.map(function (s) { return s.intent && s.intent.type === 'move' ? s.intent.target : null; });
     for (var i = 0; i < blockers.length; i++) {
       var s = blockers[i];
-      if (s.stun > 0 || !s.cooldown || hasLure(game, s)) continue;
+      if (s.camera || s.stun > 0 || !s.cooldown || hasLure(game, s)) continue;
       var free = sentryNeighbors(game, s.pos).filter(function (n) {
         return n !== st.player && !sentryAt(game, n) && taken.indexOf(n) === -1;
       });
@@ -574,6 +633,10 @@
   function threats(game) {
     var st = game.state; var out = [];
     st.sentries.forEach(function (s) {
+      if (s.intent && s.intent.type === 'watch' && s.intent.nodes.indexOf(st.player) !== -1) {
+        out.push({ sentry: s.id, type: 'scan', heat: HEAT.scan, why: 'camera' });
+        return;
+      }
       if (!s.intent || s.intent.target !== st.player) return;
       if (s.intent.type === 'scan') out.push({ sentry: s.id, type: 'scan', heat: HEAT.scan, why: s.intent.why });
       if (s.intent.type === 'move') out.push({ sentry: s.id, type: 'bump', heat: HEAT.bump, why: s.intent.why });
@@ -598,6 +661,13 @@
     if (!b) return false;
     if (b.id === 'ghost') return !st.detected;
     if (b.id === 'wormStun') return st.wormStuns > 0;
+    if (b.id === 'greedy') {
+      return game.job.nodes.every(function (n) { return !n.cache || n.cache.kind !== 'cash' || !!st.taken[n.id]; });
+    }
+    if (b.id === 'quiet') return st.programsUsed.indexOf('brute') === -1;
+    if (b.id === 'speed') return st.turn <= b.turn;
+    if (b.id === 'cool') return st.heat <= b.heat;
+    if (b.id === 'bare') return st.programsUsed.length === 0;
     return false;
   }
 
@@ -605,13 +675,14 @@
     return game.par || game.state.par || (game.job.payout && game.job.payout.par) || 0;
   }
 
-  // PAR after UNKNOWN's cut: the cut comes off the bar as well as the money
-  // (rounded down to $10), so a deal costs you dollars but a clean trusted
-  // run can still beat PAR. Without this, a 25% cut put ★2 (and so ★3) out of
-  // reach on almost every trusted run: trusting was a trap, not a price.
+  // PAR after UNKNOWN's cut: half the cut comes off the bar (rounded down to
+  // $10), so a clean trusted run can still beat PAR, but a deal is a real
+  // price. v2 dropped PAR by the whole cut, and trusting both deals (PAR
+  // halved) became the easy road to ★2 for a typical player; with no drop at
+  // all, ★2 was out of reach on almost every trusted run.
   function parOf(game) {
     var p = baseParOf(game);
-    var rate = cutRate(game);
+    var rate = cutRate(game) * PAR_SHARE;
     return rate > 0 ? Math.floor(p * Math.max(0, 1 - rate) / 10) * 10 : p;
   }
 
@@ -819,7 +890,7 @@
           st.noise = target;
           var heard = [];
           st.sentries.forEach(function (x) {
-            if (x.stun > 0 || hasLure(game, x)) return;
+            if (x.camera || x.stun > 0 || hasLure(game, x)) return;
             var d = sentryDistances(game, x.pos)[target];
             if (d !== undefined && d <= NOISE_RANGE) { x.noisy = true; heard.push(x.id); planSentry(game, x); }
           });
@@ -847,6 +918,14 @@
     st.exit = job.exits[job.exitIndex];
     st.exitKnown = true;
     ev(game, events, 'extract', 'Data copied.', { node: st.player });
+    // A shortcut with `untilExtract` only gets you in: UNKNOWN pulls the
+    // link once you hold the data.
+    var scd = aiOfferDef(job, 'shortcut');
+    if (st.ai && st.ai.trusted && scd && scd.untilExtract && st.extraLinks.length) {
+      var tl = scd.trustLink;
+      st.extraLinks = st.extraLinks.filter(function (l) { return !(l[0] === tl[0] && l[1] === tl[1]); });
+      ev(game, events, 'ai', 'UNKNOWN closed the path behind you.', { offer: 'shortcut', closed: true });
+    }
     addHeat(game, events, HEAT.extract, 'extract', 'Extract.', { node: st.player });
     if (st.status !== 'playing') return { ok: true, events: events };
     var entry = entryOf(job);
@@ -936,6 +1015,18 @@
   function runSentry(game, s, events) {
     var st = game.state; var it = s.intent || { type: 'wait' };
     if (it.type !== 'scan') s.cooldown = false;
+    if (it.type === 'watch') {
+      if (it.nodes.indexOf(st.player) === -1) return;
+      s.cooldown = true;
+      ev(game, events, 'scan', 'Camera ' + s.id + ' scanned ' + label(game, st.player) + '.',
+        { sentry: s.id, node: st.player, hit: !st.spoof, spoofed: st.spoof, why: 'camera' });
+      if (st.spoof) ev(game, events, 'miss', 'Camera ' + s.id + ' saw you. Spoof held.', { sentry: s.id, node: st.player });
+      else {
+        st.detected = true;
+        addHeat(game, events, HEAT.scan, 'scan', 'Camera ' + s.id + ' scanned you.', { sentry: s.id, node: st.player });
+      }
+      return;
+    }
     if (it.type === 'stunned') {
       s.stun = Math.max(0, s.stun - 1);
       ev(game, events, 'sentryWait', 'Sentry ' + s.id + ' is stunned.', { sentry: s.id, why: 'stunned' });
@@ -969,6 +1060,9 @@
           st.detected = true;
           addHeat(game, events, HEAT.bump, 'bump', 'Sentry ' + s.id + ' bumped into you.', { sentry: s.id, node: it.target });
         }
+        // Walking into you on a decoy counts as reaching it: the decoy is
+        // wiped, so a lured Sentry can't keep bumping you there forever.
+        if (st.status === 'playing') wipeDecoy(game, s, it.target, events, 'reached');
         return; // the Sentry stays put either way
       }
       if (sentryAt(game, it.target)) { // blocked by another Sentry
@@ -1008,7 +1102,17 @@
     var events = [];
 
     // 3. Enemy phase: Sentries carry out the intents that were shown, in order.
-    for (var i = 0; i < st.sentries.length && st.status === 'playing'; i++) runSentry(game, st.sentries[i], events);
+    // A Sentry backing into a node another one is leaving (untangle) runs
+    // after it; everyone else runs in order.
+    var ran = {};
+    var runOne = function (s) {
+      if (ran[s.id] || st.status !== 'playing') return;
+      ran[s.id] = true;
+      var after = s.intent && s.intent.after;
+      if (after) st.sentries.forEach(function (y) { if (y.id === after) runOne(y); });
+      runSentry(game, s, events);
+    };
+    for (var i = 0; i < st.sentries.length && st.status === 'playing'; i++) runOne(st.sentries[i]);
     tag(events, 0, { phase: 'enemy' });
     // Noise lasts for one enemy phase only.
     st.noise = null;
@@ -1050,7 +1154,7 @@
     newGame: newGame, nodeDef: nodeDef, neighbors: neighbors, allLinks: allLinks, sentryAt: sentryAt,
     isClosed: isClosed, isBarrier: isBarrier, isBurned: isBurned, legalMoves: legalMoves, programTargets: programTargets,
     canRun: canRun, canExtract: canExtract, threats: threats, tracing: tracing, stars: stars,
-    payout: payout, bonusMet: bonusMet, exitInfo: exitInfo, resolveJob: resolveJob, canonicalVariant: canonicalVariant,
+    payout: payout, bonusMet: bonusMet, LOSSY_BONUS: ['ghost', 'quiet', 'speed', 'cool', 'bare'], exitInfo: exitInfo, resolveJob: resolveJob, canonicalVariant: canonicalVariant,
     programCost: programCost,
     move: move, runProgram: runProgram, extract: extract, undo: undo, answerAI: answerAI,
     abort: abort, endTurn: endTurn, replan: planAll, blockedReason: blockedReason, canAct: canAct, clone: clone

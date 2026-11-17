@@ -402,6 +402,11 @@
       return (s.kind === 'bump' ? 'Bumped' : 'Seen') + (s.sentry ? ' by Sentry ' + s.sentry : '') + (s.turn ? ' on turn ' + s.turn : '');
     }
     if (b.id === 'wormStun') return 'No Worm stun';
+    if (b.id === 'greedy') return 'Left a cache behind';
+    if (b.id === 'quiet') return 'Used Brute';
+    if (b.id === 'speed') return 'Too slow';
+    if (b.id === 'cool') return 'Ran too hot';
+    if (b.id === 'bare') return 'Ran a program';
     return 'Bonus missed';
   }
 
