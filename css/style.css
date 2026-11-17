@@ -124,6 +124,14 @@ b { color: var(--text); }
 /* ---------- board ---------- */
 .board { position: relative; flex-shrink: 0; border-radius: 20px; background-color: var(--board); background-image: radial-gradient(#1A2230 1px, transparent 1px); background-size: 18px 18px; border: 1px solid #18202A; transition: box-shadow 0.4s, border-color 0.4s; }
 .board.breach { border-color: rgba(255,159,67,0.55); box-shadow: 0 0 0 1px rgba(255,159,67,0.25), 0 0 26px rgba(255,159,67,0.28), inset 0 0 22px rgba(255,159,67,0.12); }
+.board.hex .node { border-radius: 50%; gap: 2px; }
+.board.hex .node .lbl { font-size: 8px; letter-spacing: -0.05em; }
+.board.hex .node svg { width: 16px; height: 16px; }
+.board.hex .node .cache-chip { top: 4px; left: 50%; margin-left: -5.5px; }
+.board.hex .node.exitc::before, .board.hex .node.exit::before, .board.hex .node.valid::after { border-radius: 50%; }
+.board.hex .node .badge { font-size: 7.5px; }
+.board .hexcells polygon { fill: none; stroke: #16202B; stroke-width: 1; }
+.board .hexcells polygon.on { fill: rgba(61,220,255,0.025); stroke: #1E2A38; }
 .board svg.layer { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
 .board line.walked.draw-in { stroke-dasharray: var(--len) var(--len); stroke-dashoffset: var(--len); animation: drawin 0.2s ease-out forwards; }
 @keyframes drawin { to { stroke-dashoffset: 0; } }

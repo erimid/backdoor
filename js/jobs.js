@@ -30,6 +30,52 @@
 
   var CAMERA_RULE = '<b>Cameras</b> (square tokens) never move and can’t be lured or stunned by a Worm. End a turn next to one and it scans you.';
 
+
+  // ---------- hex boards (Jobs 11+) ----------
+  //
+  // A hex job draws its board as a map: one string per row, one token per
+  // cell ('.' is empty). Rows are pointy-top hexes, odd rows shifted half a
+  // cell right, so a cell touches up to six others:
+  //   even row r: (c±1, r), (c-1, r±1), (c, r±1)
+  //   odd row r:  (c±1, r), (c, r±1), (c+1, r±1)
+  // Every pair of touching nodes is linked, except the pairs in `cuts`
+  // (walls). `defs` gives each id its type, label and icon.
+  function hexNeighbors(col, row) {
+    var d = row % 2
+      ? [[-1, 0], [1, 0], [0, -1], [1, -1], [0, 1], [1, 1]]
+      : [[-1, 0], [1, 0], [-1, -1], [0, -1], [-1, 1], [0, 1]];
+    return d.map(function (o) { return [col + o[0], row + o[1]]; });
+  }
+  function hexJob(job) {
+    var at = {}, nodes = [];
+    job.map.forEach(function (line, row) {
+      line.trim().split(/\s+/).forEach(function (id, col) {
+        if (id === '.') return;
+        var d = job.defs[id];
+        if (!d) throw new Error(job.id + ': no def for ' + id);
+        var n = { id: id, col: col, row: row, type: d[0], label: d[1], icon: d[2] };
+        if (d[3]) Object.keys(d[3]).forEach(function (k) { n[k] = d[3][k]; });
+        nodes.push(n);
+        at[col + ',' + row] = id;
+      });
+    });
+    var cut = {};
+    (job.cuts || []).forEach(function (c) { cut[c[0] + '|' + c[1]] = cut[c[1] + '|' + c[0]] = true; });
+    var links = [];
+    nodes.forEach(function (n) {
+      hexNeighbors(n.col, n.row).forEach(function (q) {
+        var m = at[q[0] + ',' + q[1]];
+        if (m && n.id < m && !cut[n.id + '|' + m]) links.push([n.id, m]);
+      });
+    });
+    var out = {};
+    Object.keys(job).forEach(function (k) { if (k !== 'map' && k !== 'defs' && k !== 'cuts') out[k] = job[k]; });
+    out.layout = 'hex';
+    out.nodes = nodes;
+    out.links = links;
+    return out;
+  }
+
   var JOBS = [
     {
       id: 'job01',
@@ -574,7 +620,7 @@
       number: '10',
       name: 'Nimbus Data Center',
       goal: 'Image the mainframe',
-      tagline: 'The finale. Three cameras, one guard, three ways out. Stay cool.',
+      tagline: 'Three cameras, one guard, three ways out. Stay cool.',
       turnLimit: 11,
       programs: { sniff: 1, spoof: 2, decoy: 1, brute: 1 },
       nodes: [
@@ -625,6 +671,299 @@
       rules: RULES.concat([CAMERA_RULE, '<b>Decoy</b> lures the single nearest Sentry within 3 hops. Cameras ignore it.'])
     }
   ];
+
+  var HEX_RULE = 'This board is <b>hexagons</b>: a node can link to up to <b>six</b> others, so there is almost always another way round.';
+  var DECOY_WORM_RULE = '<b>Decoy</b> lures the single nearest Sentry within 3 hops. <b>Worm</b> stuns a Sentry that steps on it for 2 turns.';
+
+  var HEX_JOBS = [
+    {
+      id: 'job11',
+      number: '11',
+      name: 'Halcyon Hotel',
+      goal: 'Copy the guest ledger',
+      tagline: 'New ground: six ways out of every room. One camera, two night porters.',
+      turnLimit: 12,
+      programs: { sniff: 1, spoof: 1, decoy: 1, brute: 1 },
+      map: [
+        '.  K  V  Z  .',
+        'O  S  X  H  .',
+        'M  W  .  F  Q',
+        'D  R  P  Y  .',
+        'C  T  G  B  U',
+        'L  A  N  .  .',
+        '.  .  E  .  .'
+      ],
+      defs: {
+        E: ['entry', 'ENTRY', 'entry'],
+        A: ['node', 'ATRIUM', 'router'], N: ['node', 'SPA', 'wifi'], L: ['node', 'LUGGAGE', 'database'],
+        C: ['node', 'LOBBY', 'kiosk'], T: ['node', 'TV-HUB', 'server'], G: ['node', 'GYM-PC', 'monitor'],
+        B: ['node', 'BAR', 'till'], U: ['node', 'VALET', 'kiosk'],
+        D: ['node', 'DESK', 'till'], R: ['node', 'ROUTER', 'router'], P: ['node', 'POS', 'till'],
+        Y: ['node', 'MINIBAR', 'till', { hidden: true }],
+        M: ['node', 'MAIL', 'mail'], W: ['node', 'WIFI', 'wifi'], F: ['firewall', 'FIREWALL', 'firewall'],
+        Q: ['node', 'SAFE', 'database', { hidden: true }],
+        O: ['node', 'OFFICE', 'monitor'], S: ['node', 'SWITCH', 'switch'], X: ['node', 'CAM-1', 'camera'],
+        H: ['node', 'HVAC', 'router'],
+        K: ['node', 'KEYCARD', 'kiosk'], V: ['target', 'LEDGER', 'vault'], Z: ['node', 'ROOF-AP', 'wifi']
+      },
+      clues: [],
+      ai: null,
+      sentries: [
+        { id: 'X', camera: true, start: 'X', patrol: ['X'] },
+        { id: 'A', start: 'M', patrol: ['M', 'O', 'M', 'D'] },
+        { id: 'B', start: 'Y', patrol: ['Y', 'Q', 'Y', 'B', 'U', 'B'], offsets: [0, 3] }
+      ],
+      exits: ['L', 'U'],
+      caches: { D: { kind: 'cash' }, H: { kind: 'cash' } },
+      bag: { nodes: ['Y', 'Q'], contents: ['cash', 'honeypot'], canonical: { Y: 'cash', Q: 'honeypot' } },
+      payout: { base: 900, par: 900 },
+      bonus: { id: 'ghost', short: 'Ghost', text: 'Ghost: never get scanned or bumped' },
+      tips: [
+        { when: 'start', html: 'Hexagons: every node can link to <b>six</b> others. More ways in, more ways round a Sentry. Pick your line.' },
+        { when: 'breach', html: '<b>BREACH</b>. Two porters hunt you, and they have more ways to reach you too.' }
+      ],
+      rules: RULES.concat([HEX_RULE, CAMERA_RULE, '<b>Decoy</b> lures the single nearest Sentry within 3 hops. Cameras ignore it.'])
+    },
+    {
+      id: 'job12',
+      number: '12',
+      name: 'Metro Transit Control',
+      goal: 'Reroute the night trains',
+      tagline: 'A guard circles the roundabout. Every platform pays, if you can reach it.',
+      turnLimit: 14,
+      programs: { sniff: 1, spoof: 1, decoy: 1, worm: 1, brute: 1 },
+      map: [
+        'N  K  V  Z  .',
+        'L  A  X  O  .',
+        'M  S  R2 R3 D',
+        'I  R1 .  R4 G',
+        'P  R  R6 R5 Q',
+        '.  J  U  Y  .',
+        '.  .  E  .  .'
+      ],
+      defs: {
+        E: ['entry', 'ENTRY', 'entry'],
+        J: ['node', 'TURNSTL', 'kiosk'], U: ['node', 'TICKETS', 'till'], Y: ['node', 'LOCKERS', 'database'],
+        P: ['node', 'PARCELS', 'mail'], R: ['node', 'ROUTER', 'router'],
+        R1: ['node', 'PLAT-1', 'switch'], R2: ['node', 'PLAT-2', 'switch'], R3: ['node', 'PLAT-3', 'switch'],
+        R4: ['node', 'PLAT-4', 'switch'], R5: ['node', 'PLAT-5', 'switch'], R6: ['node', 'PLAT-6', 'switch'],
+        Q: ['node', 'DEPOT', 'server'],
+        I: ['node', 'INFO', 'kiosk'], G: ['node', 'SIGNALS', 'router'],
+        M: ['node', 'MAINT', 'monitor', { hidden: true }], S: ['node', 'SWITCH', 'switch'], D: ['node', 'DISPATCH', 'monitor'],
+        L: ['node', 'LOGS', 'database'], A: ['lock', 'AUTH', 'lock'], X: ['node', 'CAM-1', 'camera'],
+        O: ['firewall', 'FIREWALL', 'firewall'],
+        N: ['node', 'NAV', 'wifi'], K: ['node', 'KIOSK', 'kiosk'], V: ['target', 'CONTROL', 'vault'], Z: ['node', 'RADIO', 'wifi']
+      },
+      clues: [
+        { at: 'I', opens: 'A', text: 'INFO had the AUTH password on a maintenance notice. AUTH is open.' }
+      ],
+      ai: null,
+      sentries: [
+        { id: 'X', camera: true, start: 'X', patrol: ['X'] },
+        { id: 'A', start: 'R1', patrol: ['R1', 'R2', 'R3', 'R4', 'R5', 'R6'], offsets: [0, 2, 4] },
+        { id: 'B', start: 'L', patrol: ['L', 'K', 'L', 'M'], offsets: [0, 2] }
+      ],
+      exits: ['P', 'G'],
+      caches: { I: { kind: 'cash' }, L: { kind: 'cash' } },
+      bag: { nodes: ['M', 'Y'], contents: ['cash', 'honeypot'], canonical: { M: 'cash', Y: 'honeypot' } },
+      payout: { base: 1000, par: 1000 },
+      bonus: { id: 'greedy', short: 'Greedy', text: 'Greedy: take every $ cache' },
+      tips: [
+        { when: 'start', html: 'Sentry A circles the six platforms. The camera watches the top. <b>INFO</b> may know the AUTH password.' },
+        { when: 'breach', html: '<b>BREACH</b>. The guard leaves the roundabout to hunt you.' }
+      ],
+      rules: RULES.concat([HEX_RULE, CAMERA_RULE, DECOY_WORM_RULE,
+        'Locks open with <b>Brute</b>, or for free if you find the password somewhere on the network.'])
+    },
+    {
+      id: 'job13',
+      number: '13',
+      name: 'Orbis Genomics',
+      goal: 'Steal the genome archive',
+      tagline: 'UNKNOWN is back. The lock’s code is filed somewhere downstairs. Leave Brute in the bag.',
+      turnLimit: 13,
+      programs: { sniff: 1, spoof: 1, decoy: 1, worm: 1, brute: 1 },
+      map: [
+        '.  L  V  K  .',
+        'CL S  A  O  .',
+        'M  W  .  H  Z',
+        'D  U  T  F  .',
+        'P  R  .  G  Q',
+        'I  B  N  Y  X',
+        '.  J  C  LD .',
+        '.  .  E  .  .'
+      ],
+      cuts: [['S', 'V']],
+      defs: {
+        E: ['entry', 'ENTRY', 'entry'],
+        J: ['node', 'GATE', 'kiosk'], C: ['node', 'LOBBY', 'kiosk'], LD: ['node', 'DOCK', 'router'],
+        I: ['node', 'INTAKE', 'kiosk'], B: ['node', 'BADGES', 'kiosk'], N: ['node', 'SECURITY', 'monitor'],
+        Y: ['node', 'LOCKERS', 'database'], X: ['node', 'ARCHIVE', 'database'],
+        P: ['node', 'PRINTER', 'printer'], R: ['node', 'ROUTER', 'router'], G: ['node', 'SEQUENCER', 'server'],
+        Q: ['node', 'COLD-RM', 'database', { hidden: true }],
+        D: ['node', 'DESK', 'till', { hidden: true }], U: ['ai', 'UNKNOWN', 'ai'], T: ['node', 'CAM-1', 'camera'],
+        F: ['firewall', 'FIREWALL', 'firewall'],
+        M: ['node', 'MAIL', 'mail'], W: ['node', 'WIFI', 'wifi'], H: ['node', 'HVAC', 'router'], Z: ['node', 'FREEZER', 'server'],
+        CL: ['node', 'CLEANRM', 'monitor'], S: ['node', 'SWITCH', 'switch'], A: ['lock', 'BIOLOCK', 'lock'], O: ['node', 'OFFICE', 'monitor'],
+        L: ['node', 'LAB-1', 'monitor'], V: ['target', 'GENOME', 'vault'], K: ['node', 'KEYPAD', 'kiosk']
+      },
+      clues: [
+        { at: 'X', opens: 'A', text: 'ARCHIVE had the BIOLOCK code in an old audit. BIOLOCK is open.' }
+      ],
+      ai: {
+        node: 'U',
+        offers: [
+          {
+            id: 'shortcut', trigger: 'adjacent',
+            voice: 'the {trap} is rigged. come through me and i’ll put you in the vents.',
+            terms: 'Trust: a path to HVAC opens until you Extract. UNKNOWN takes {another}{cut} of the payout, and PAR drops by half that.',
+            cut: 0.25,
+            trustLink: ['U', 'H'],
+            // Like Job 02's: it only gets you in. UNKNOWN pulls it at Extract.
+            untilExtract: true
+          },
+          {
+            id: 'freeze', trigger: 'extract',
+            voice: 'they smell you now. share the archive and i’ll freeze them.',
+            terms: 'Trust: every Sentry stalls for 1 phase. UNKNOWN takes {another}{cut}, and PAR drops by half that.',
+            cut: 0.25
+          }
+        ],
+        offer: 'the trap is rigged. come through me and i’ll put you in the vents.',
+        offerTail: 'you’ll owe me.',
+        trustLink: ['U', 'H'],
+        trustedLine: 'UNKNOWN kept a copy of the genome. It didn’t say what for.',
+        refusedLine: 'UNKNOWN went quiet after you refused. It always does.',
+        ignoredLine: 'You never met UNKNOWN. It watched you anyway.'
+      },
+      sentries: [
+        { id: 'X', camera: true, start: 'T', patrol: ['T'] },
+        { id: 'A', start: 'M', patrol: ['M', 'CL', 'S', 'W'], offsets: [0, 2] },
+        { id: 'B', start: 'H', patrol: ['H', 'O', 'H', 'Z'], offsets: [0, 2] }
+      ],
+      exits: ['P', 'X'],
+      caches: { Z: { kind: 'cash' }, Y: { kind: 'cash' } },
+      bag: { nodes: ['D', 'Q'], contents: ['cash', 'honeypot'], canonical: { D: 'cash', Q: 'honeypot' } },
+      payout: { base: 1100, par: 1100 },
+      bonus: { id: 'quiet', short: 'Quiet', text: 'Quiet: never use Brute' },
+      tips: [
+        { when: 'start', html: 'UNKNOWN sits in the middle. BIOLOCK’s code is in <b>ARCHIVE</b>, far from the target. Quiet means no Brute.' },
+        { when: 'breach', html: '<b>BREACH</b>. Two Sentries hunt you. The camera keeps watching.' }
+      ],
+      rules: RULES.concat([HEX_RULE, CAMERA_RULE, DECOY_WORM_RULE,
+        'Locks open with <b>Brute</b>, or for free if you find the code somewhere on the network.',
+        'Something <span class="t-ai">else</span> is on this network. It makes offers. Refusing is free; trusting costs a cut of the payout (PAR drops by half as much).'])
+    },
+    {
+      id: 'job14',
+      number: '14',
+      name: 'Aurora Exchange',
+      goal: 'Front-run the opening bell',
+      tagline: 'Three cameras ring the matching engine. You start warm, and the clock is the bonus.',
+      turnLimit: 13,
+      startHeat: 1,
+      programs: { sniff: 1, spoof: 2, decoy: 1, worm: 1, brute: 1 },
+      map: [
+        'Z  K  V  L  N',
+        'H  X1 O  X3 .',
+        'M  W  F  T  D',
+        'C  R  X2 B  I',
+        'P  G  U  Q  .',
+        'J  A  LB Y  .',
+        '.  .  E  .  .'
+      ],
+      defs: {
+        E: ['entry', 'ENTRY', 'entry'],
+        J: ['node', 'JANITOR', 'kiosk'], A: ['node', 'ATRIUM', 'router'], LB: ['node', 'LOBBY', 'kiosk'],
+        Y: ['node', 'LOCKERS', 'database', { hidden: true }],
+        P: ['node', 'PRINTER', 'printer'], G: ['node', 'GATEWAY', 'router'], U: ['node', 'UPLINK', 'wifi'],
+        Q: ['node', 'QUOTES', 'server', { hidden: true }],
+        C: ['node', 'CLEARING', 'database'], R: ['node', 'ROUTER', 'router'], X2: ['node', 'CAM-2', 'camera'],
+        B: ['node', 'BROKER', 'monitor'], I: ['node', 'INSIDER', 'mail'],
+        M: ['node', 'MAIL', 'mail'], W: ['node', 'WIFI', 'wifi'], F: ['firewall', 'FIREWALL', 'firewall'],
+        T: ['node', 'TRADER', 'monitor'], D: ['node', 'DESK', 'till'],
+        H: ['node', 'HFT-1', 'server'], X1: ['node', 'CAM-1', 'camera'], O: ['node', 'OPS', 'monitor'], X3: ['node', 'CAM-3', 'camera'],
+        Z: ['node', 'TICKER', 'till'], K: ['node', 'KIOSK', 'kiosk'], V: ['target', 'MATCHER', 'vault'],
+        L: ['node', 'LOGS', 'database'], N: ['node', 'NEWSWIRE', 'wifi']
+      },
+      clues: [],
+      ai: null,
+      sentries: [
+        { id: 'X', camera: true, start: 'X1', patrol: ['X1'] },
+        { id: 'Y', camera: true, start: 'X2', patrol: ['X2'] },
+        { id: 'Z', camera: true, start: 'X3', patrol: ['X3'] },
+        { id: 'A', start: 'P', patrol: ['P', 'G', 'R', 'G'], offsets: [0, 2] },
+        { id: 'B', start: 'T', patrol: ['T', 'B', 'Q', 'B'], offsets: [0, 2] }
+      ],
+      exits: ['J', 'I', 'N'],
+      caches: { D: { kind: 'cash' }, Z: { kind: 'cash' } },
+      bag: { nodes: ['Q', 'Y'], contents: ['cash', 'honeypot'], canonical: { Q: 'cash', Y: 'honeypot' } },
+      payout: { base: 1300, par: 1300 },
+      bonus: { id: 'speed', short: 'Fast', text: 'Fast: get out by turn 10', turn: 10 },
+      tips: [
+        { when: 'start', html: 'You start with <b>1 heat</b>. Every way into MATCHER is on camera: bank an action or <b>Spoof</b> to get in and out clean.' },
+        { when: 'breach', html: '<b>BREACH</b>. The exit could be any of three. Run.' }
+      ],
+      rules: RULES.concat([HEX_RULE, CAMERA_RULE, DECOY_WORM_RULE])
+    },
+    {
+      id: 'job15',
+      number: '15',
+      name: 'Helix Biobank',
+      goal: 'Walk out with the seed vault',
+      tagline: 'The finale. Three guards, two cameras, two firewalls, a lock, and three ways out.',
+      turnLimit: 15,
+      programs: { sniff: 2, spoof: 2, decoy: 2, worm: 1, brute: 1 },
+      map: [
+        'NA KP V  LG .',
+        'ZR LK C1 OP SW',
+        'ML WF F1 HV DS',
+        'CL RT .  TR GN',
+        'PR C2 BR F2 QH',
+        'IN UP .  YH JT',
+        'KT TK LB DK .',
+        '.  .  EN .  .'
+      ],
+      defs: {
+        EN: ['entry', 'ENTRY', 'entry'],
+        KT: ['node', 'KITCHEN', 'till'], TK: ['node', 'TANKS', 'database'], LB: ['node', 'LOBBY', 'kiosk'], DK: ['node', 'GUARD', 'monitor'],
+        IN: ['node', 'INTAKE', 'kiosk'], UP: ['node', 'UPS', 'server'], YH: ['node', 'SAMPLES', 'database', { hidden: true }], JT: ['node', 'DOCK', 'router'],
+        PR: ['node', 'PRINTER', 'printer'], C2: ['node', 'CAM-2', 'camera'], BR: ['node', 'REACTOR', 'server'],
+        F2: ['firewall', 'FIREWALL', 'firewall'], QH: ['node', 'ISOLATE', 'database', { hidden: true }],
+        CL: ['node', 'CLINIC', 'monitor'], RT: ['node', 'ROUTER', 'router'], TR: ['node', 'TRIAGE', 'monitor'], GN: ['node', 'GENSEQ', 'server'],
+        ML: ['node', 'MAIL', 'mail'], WF: ['node', 'WIFI', 'wifi'], F1: ['firewall', 'FIREWALL', 'firewall'],
+        HV: ['node', 'HVAC', 'router'], DS: ['node', 'DESK', 'till'],
+        ZR: ['node', 'CRYO', 'server'], LK: ['lock', 'BIOLOCK', 'lock'], C1: ['node', 'CAM-1', 'camera'],
+        OP: ['node', 'OPS', 'monitor'], SW: ['node', 'SAT-UP', 'wifi'],
+        NA: ['node', 'NAS', 'database'], KP: ['node', 'KEYPAD', 'kiosk'], V: ['target', 'SEEDS', 'vault'], LG: ['node', 'LOGS', 'database']
+      },
+      clues: [
+        { at: 'TK', opens: 'LK', text: 'TANKS had the BIOLOCK code taped to a valve log. BIOLOCK is open.' }
+      ],
+      ai: null,
+      sentries: [
+        { id: 'X', camera: true, start: 'C1', patrol: ['C1'] },
+        { id: 'Y', camera: true, start: 'C2', patrol: ['C2'] },
+        { id: 'A', start: 'ML', patrol: ['ML', 'ZR', 'NA', 'ZR'], offsets: [0] },
+        { id: 'B', start: 'HV', patrol: ['HV', 'DS', 'GN', 'TR'], offsets: [0, 2] },
+        { id: 'C', start: 'IN', patrol: ['IN', 'UP', 'BR', 'UP'], offsets: [0, 2] }
+      ],
+      exits: ['KT', 'JT', 'SW'],
+      caches: { NA: { kind: 'cash' }, CL: { kind: 'cash' } },
+      bag: { nodes: ['YH', 'QH'], contents: ['cash', 'honeypot'], canonical: { YH: 'cash', QH: 'honeypot' } },
+      payout: { base: 1600, par: 1600 },
+      bonus: { id: 'wormStun', short: 'Worm', text: 'Stun a Sentry with a Worm' },
+      tips: [
+        { when: 'start', html: 'The biggest board yet. Three guards, two cameras, two firewalls, and BIOLOCK’s code is in <b>TANKS</b>. Plan the way out first.' },
+        { when: 'breach', html: '<b>BREACH</b>. Three guards hunt you. A Worm in their path buys time.' }
+      ],
+      rules: RULES.concat([HEX_RULE, CAMERA_RULE, DECOY_WORM_RULE,
+        'Locks open with <b>Brute</b>, or for free if you find the code somewhere on the network.'])
+    }
+  ];
+
+  JOBS.push.apply(JOBS, HEX_JOBS.map(hexJob));
+  Object.defineProperty(JOBS, 'hexNeighbors', { value: hexNeighbors });
 
   root.BACKDOOR_JOBS = JOBS;
   if (typeof module !== 'undefined' && module.exports) module.exports = JOBS;
