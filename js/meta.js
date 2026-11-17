@@ -354,8 +354,24 @@
     cur = { jobId: jobId, pick: pk };
     var par = pk.par || (job.payout && job.payout.par) || 0;
     var exits = (job.exits || []).map(function (id) { return nodeLabel(job, id); });
-    var progs = (E.PROGRAM_ORDER || []).filter(function (p) { return job.programs[p]; }).map(function (p) {
-      return '<span class="chip">' + icon(p, 12) + ' ' + esc(E.PROGRAMS[p].name) + ' ×' + job.programs[p] + '</span>';
+    var progs;
+    if (job.loadout) {
+      // v4 loadout: tap programs to pick exactly `pick` of them.
+      var lo = job.loadout;
+      if (!pk.loadout) pk.loadout = lo.default.slice();
+      progs = '<span class="m-lo-k">Loadout: pick ' + lo.pick + ' (' + pk.loadout.length + '/' + lo.pick + ')</span>' +
+        (E.PROGRAM_ORDER || []).filter(function (p) { return lo.pool[p]; }).map(function (p) {
+          var on = pk.loadout.indexOf(p) !== -1;
+          return '<button class="chip lo' + (on ? ' on' : '') + '" data-act="loadout" data-prog="' + p + '" aria-pressed="' + on + '" title="' + esc(E.PROGRAMS[p].desc) + '">' +
+            icon(p, 12) + ' ' + esc(E.PROGRAMS[p].name) + ' ×' + lo.pool[p] + '</button>';
+        }).join('');
+    } else {
+      progs = (E.PROGRAM_ORDER || []).filter(function (p) { return job.programs[p]; }).map(function (p) {
+        return '<span class="chip">' + icon(p, 12) + ' ' + esc(E.PROGRAMS[p].name) + ' ×' + job.programs[p] + '</span>';
+      }).join('');
+    }
+    var alerts = (job.alerts || []).map(function (a) {
+      return '<div class="m-alert"><b>⚠ ' + a.at + ' heat</b> ' + esc(a.text) + '</div>';
     }).join('');
     var h = '<div class="screen mscreen meta-brief">';
     h += '<div class="hdr"><button class="icon-btn" data-act="back" aria-label="Back to job board">' + icon('close') + '</button>' +
@@ -368,8 +384,10 @@
     if (exits.length > 1) h += '<div class="m-exit">Exit: <b class="t-gold">' + exits.map(esc).join('</b> or <b class="t-gold">') + '</b> <span>(Sniff or Extract to find out)</span></div>';
     else if (exits.length) h += '<div class="m-exit">Exit: <b class="t-gold">' + esc(exits[0]) + '</b></div>';
     h += '<div class="chips m-progs">' + progs + '<span class="chip">' + job.turnLimit + ' turns</span></div>';
+    if (alerts) h += '<div class="m-alerts">' + alerts + '</div>';
     h += '<div class="m-label">' + esc(pk.label) + '</div>';
-    h += '<div class="m-go"><button class="btn primary m-start" data-act="start">START</button>' +
+    var short = job.loadout ? job.loadout.pick - pk.loadout.length : 0;
+    h += '<div class="m-go"><button class="btn primary m-start" data-act="start"' + (short > 0 ? ' disabled' : '') + '>' + (short > 0 ? 'PICK ' + short + ' MORE' : 'START') + '</button>' +
       '<button class="m-link" data-act="help">How to play</button></div>';
     return h + '</div>';
   }
@@ -739,7 +757,19 @@
       case 'start': {
         var c = cur || (JOBS[0] ? { jobId: JOBS[0].id, pick: pick(JOBS[0].id, 'tonight') } : null);
         if (!c) return null;
+        var sj = jobById(c.jobId);
+        if (sj && sj.loadout && c.pick.loadout && c.pick.loadout.length !== sj.loadout.pick) return { rerender: true };
         return { start: c.pick };
+      }
+      case 'loadout': {
+        var lj = cur ? jobById(cur.jobId) : null;
+        var prog = el && el.getAttribute ? el.getAttribute('data-prog') : null;
+        if (!lj || !lj.loadout || !prog || !lj.loadout.pool[prog]) return null;
+        var lst = cur.pick.loadout || (cur.pick.loadout = lj.loadout.default.slice());
+        var at = lst.indexOf(prog);
+        if (at !== -1) lst.splice(at, 1);
+        else if (lst.length < lj.loadout.pick) lst.push(prog);
+        return { rerender: true };
       }
       case 'retry':
       case 'retry-fast': {

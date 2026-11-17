@@ -681,9 +681,9 @@
       number: '11',
       name: 'Halcyon Hotel',
       goal: 'Copy the guest ledger',
-      tagline: 'New ground: six ways out of every room. One camera, two night porters.',
-      turnLimit: 12,
-      programs: { sniff: 1, spoof: 1, decoy: 1, brute: 1 },
+      tagline: 'New ground: six ways out of every room. One camera, three night porters, and a manager who wakes up.',
+      turnLimit: 10,
+      programs: { sniff: 1, spoof: 1, brute: 1 },
       map: [
         '.  K  V  Z  .',
         'O  S  X  H  .',
@@ -702,7 +702,7 @@
         Y: ['node', 'MINIBAR', 'till', { hidden: true }],
         M: ['node', 'MAIL', 'mail'], W: ['node', 'WIFI', 'wifi'], F: ['firewall', 'FIREWALL', 'firewall'],
         Q: ['node', 'SAFE', 'database', { hidden: true }],
-        O: ['node', 'OFFICE', 'monitor'], S: ['node', 'SWITCH', 'switch'], X: ['node', 'CAM-1', 'camera'],
+        O: ['node', 'OFFICE', 'monitor', { file: true }], S: ['node', 'SWITCH', 'switch'], X: ['node', 'CAM-1', 'camera'],
         H: ['node', 'HVAC', 'router'],
         K: ['node', 'KEYCARD', 'kiosk'], V: ['target', 'LEDGER', 'vault'], Z: ['node', 'ROOF-AP', 'wifi']
       },
@@ -711,16 +711,21 @@
       sentries: [
         { id: 'X', camera: true, start: 'X', patrol: ['X'] },
         { id: 'A', start: 'M', patrol: ['M', 'O', 'M', 'D'] },
-        { id: 'B', start: 'Y', patrol: ['Y', 'Q', 'Y', 'B', 'U', 'B'], offsets: [0, 3] }
+        { id: 'B', start: 'Y', patrol: ['Y', 'Q', 'Y', 'B', 'U', 'B'], offsets: [0, 3] },
+        { id: 'D', start: 'P', patrol: ['P', 'R', 'W', 'R'], offsets: [0, 2] }
       ],
       exits: ['L', 'U'],
       caches: { D: { kind: 'cash' }, H: { kind: 'cash' } },
       bag: { nodes: ['Y', 'Q'], contents: ['cash', 'honeypot'], canonical: { Y: 'cash', Q: 'honeypot' } },
       payout: { base: 900, par: 900 },
+      alerts: [
+        { at: 2, kind: 'spawn', sentry: { id: 'C', patrol: ['A', 'T', 'G', 'T'] }, text: 'The night manager wakes up. Another porter starts at ATRIUM.' },
+        { at: 5, kind: 'lockdown', nodes: ['F'], text: 'FIREWALL resets. It’s closed again.' }
+      ],
       bonus: { id: 'ghost', short: 'Ghost', text: 'Ghost: never get scanned or bumped' },
       tips: [
-        { when: 'start', html: 'Hexagons: every node can link to <b>six</b> others. More ways in, more ways round a Sentry. Pick your line.' },
-        { when: 'breach', html: '<b>BREACH</b>. Two porters hunt you, and they have more ways to reach you too.' }
+        { when: 'start', html: 'Hexagons: every node can link to <b>six</b> others. Watch the <b>alert</b> marks on the heat bar: at 2 heat another porter joins. <b>OFFICE</b> holds a side file.' },
+        { when: 'breach', html: '<b>BREACH</b>. The porters hunt you, and they have more ways to reach you too.' }
       ],
       rules: RULES.concat([HEX_RULE, CAMERA_RULE, '<b>Decoy</b> lures the single nearest Sentry within 3 hops. Cameras ignore it.'])
     },
@@ -729,9 +734,9 @@
       number: '12',
       name: 'Metro Transit Control',
       goal: 'Reroute the night trains',
-      tagline: 'A guard circles the roundabout. Every platform pays, if you can reach it.',
-      turnLimit: 14,
-      programs: { sniff: 1, spoof: 1, decoy: 1, worm: 1, brute: 1 },
+      tagline: 'A guard circles the roundabout. The points at SWITCH decide which platforms connect.',
+      turnLimit: 12,
+      programs: { sniff: 1, spoof: 1, decoy: 1, brute: 1 },
       map: [
         'N  K  V  Z  .',
         'L  A  X  O  .',
@@ -764,12 +769,21 @@
         { id: 'B', start: 'L', patrol: ['L', 'K', 'L', 'M'], offsets: [0, 2] }
       ],
       exits: ['P', 'G'],
+      // Track points: stepping on SWITCH flips which links are live.
+      switches: [
+        { at: 'S', a: [['R2', 'R3'], ['R5', 'R6'], ['S', 'R2']], b: [['R1', 'R2'], ['R4', 'R5'], ['R3', 'O']],
+          text: { a: 'Points set west: PLAT-2 joins SWITCH and PLAT-3; PLAT-5 joins PLAT-6.', b: 'Points set east: PLAT-1 joins PLAT-2, PLAT-4 joins PLAT-5, and PLAT-3 reaches FIREWALL.' } }
+      ],
+      alerts: [
+        { at: 3, kind: 'spawn', sentry: { id: 'C', patrol: ['J', 'U', 'Y', 'U'] }, text: 'Transit police at the turnstiles.' },
+        { at: 6, kind: 'lockdown', nodes: ['A', 'O'], text: 'AUTH and FIREWALL reset. Both are closed again.' }
+      ],
       caches: { I: { kind: 'cash' }, L: { kind: 'cash' } },
       bag: { nodes: ['M', 'Y'], contents: ['cash', 'honeypot'], canonical: { M: 'cash', Y: 'honeypot' } },
       payout: { base: 1000, par: 1000 },
       bonus: { id: 'greedy', short: 'Greedy', text: 'Greedy: take every $ cache' },
       tips: [
-        { when: 'start', html: 'Sentry A circles the six platforms. The camera watches the top. <b>INFO</b> may know the AUTH password.' },
+        { when: 'start', html: 'Step on <b>SWITCH</b> to flip the points: dimmed links are dead, for you and the guards. <b>INFO</b> may know the AUTH password.' },
         { when: 'breach', html: '<b>BREACH</b>. The guard leaves the roundabout to hunt you.' }
       ],
       rules: RULES.concat([HEX_RULE, CAMERA_RULE, DECOY_WORM_RULE,
@@ -780,9 +794,9 @@
       number: '13',
       name: 'Orbis Genomics',
       goal: 'Steal the genome archive',
-      tagline: 'UNKNOWN is back. The lock’s code is filed somewhere downstairs. Leave Brute in the bag.',
-      turnLimit: 13,
-      programs: { sniff: 1, spoof: 1, decoy: 1, worm: 1, brute: 1 },
+      tagline: 'UNKNOWN is back, and a Tracer follows your trail. Don’t double back.',
+      turnLimit: 12,
+      programs: { sniff: 1, spoof: 1, decoy: 1, brute: 1 },
       map: [
         '.  L  V  K  .',
         'CL S  A  O  .',
@@ -839,7 +853,13 @@
       sentries: [
         { id: 'X', camera: true, start: 'T', patrol: ['T'] },
         { id: 'A', start: 'M', patrol: ['M', 'CL', 'S', 'W'], offsets: [0, 2] },
-        { id: 'B', start: 'H', patrol: ['H', 'O', 'H', 'Z'], offsets: [0, 2] }
+        { id: 'B', start: 'H', patrol: ['H', 'O', 'H', 'Z'], offsets: [0, 2] },
+        // The Tracer logs in at ENTRY on turn 3 and walks your trail.
+        { id: 'T', tracer: true, arrives: 3, start: 'E', patrol: ['E'] }
+      ],
+      alerts: [
+        { at: 3, kind: 'lockdown', nodes: ['A', 'F'], text: 'Security resets BIOLOCK and FIREWALL.' },
+        { at: 6, kind: 'spawn', sentry: { id: 'C', patrol: ['B', 'N', 'C', 'N'] }, text: 'A guard comes down to the lobby.' }
       ],
       exits: ['P', 'X'],
       caches: { Z: { kind: 'cash' }, Y: { kind: 'cash' } },
@@ -847,7 +867,7 @@
       payout: { base: 1100, par: 1100 },
       bonus: { id: 'quiet', short: 'Quiet', text: 'Quiet: never use Brute' },
       tips: [
-        { when: 'start', html: 'UNKNOWN sits in the middle. BIOLOCK’s code is in <b>ARCHIVE</b>, far from the target. Quiet means no Brute.' },
+        { when: 'start', html: 'A <b>Tracer</b> logs in at ENTRY on turn 3 and walks your exact trail, one node a turn. Keep moving forward. BIOLOCK’s code is in <b>ARCHIVE</b>.' },
         { when: 'breach', html: '<b>BREACH</b>. Two Sentries hunt you. The camera keeps watching.' }
       ],
       rules: RULES.concat([HEX_RULE, CAMERA_RULE, DECOY_WORM_RULE,
@@ -878,16 +898,21 @@
         Y: ['node', 'LOCKERS', 'database', { hidden: true }],
         P: ['node', 'PRINTER', 'printer'], G: ['node', 'GATEWAY', 'router'], U: ['node', 'UPLINK', 'wifi'],
         Q: ['node', 'QUOTES', 'server', { hidden: true }],
-        C: ['node', 'CLEARING', 'database'], R: ['node', 'ROUTER', 'router'], X2: ['node', 'CAM-2', 'camera'],
+        C: ['node', 'CLEARING', 'database', { file: true }], R: ['node', 'ROUTER', 'router'], X2: ['node', 'CAM-2', 'camera'],
         B: ['node', 'BROKER', 'monitor'], I: ['node', 'INSIDER', 'mail'],
         M: ['node', 'MAIL', 'mail'], W: ['node', 'WIFI', 'wifi'], F: ['firewall', 'FIREWALL', 'firewall'],
         T: ['node', 'TRADER', 'monitor'], D: ['node', 'DESK', 'till'],
         H: ['node', 'HFT-1', 'server'], X1: ['node', 'CAM-1', 'camera'], O: ['node', 'OPS', 'monitor'], X3: ['node', 'CAM-3', 'camera'],
         Z: ['node', 'TICKER', 'till'], K: ['node', 'KIOSK', 'kiosk'], V: ['target', 'MATCHER', 'vault'],
-        L: ['node', 'LOGS', 'database'], N: ['node', 'NEWSWIRE', 'wifi']
+        L: ['node', 'LOGS', 'database', { file: true }], N: ['node', 'NEWSWIRE', 'wifi']
       },
       clues: [],
       ai: null,
+      loadout: { pick: 5, pool: { sniff: 1, spoof: 2, decoy: 1, worm: 1, brute: 1, tunnel: 1, freeze: 1 }, default: ['sniff', 'spoof', 'decoy', 'worm', 'brute'] },
+      alerts: [
+        { at: 4, kind: 'spawn', sentry: { id: 'C', patrol: ['A', 'LB', 'U', 'G'] }, text: 'Floor security sweeps the lobby.' },
+        { at: 7, kind: 'lockdown', nodes: ['F'], text: 'FIREWALL resets. It’s closed again.' }
+      ],
       sentries: [
         { id: 'X', camera: true, start: 'X1', patrol: ['X1'] },
         { id: 'Y', camera: true, start: 'X2', patrol: ['X2'] },
@@ -901,7 +926,7 @@
       payout: { base: 1300, par: 1300 },
       bonus: { id: 'speed', short: 'Fast', text: 'Fast: get out by turn 10', turn: 10 },
       tips: [
-        { when: 'start', html: 'You start with <b>1 heat</b>. Every way into MATCHER is on camera: bank an action or <b>Spoof</b> to get in and out clean.' },
+        { when: 'start', html: 'Pick 5 programs before you go. <b>LOGS</b> and <b>CLEARING</b> hold side files: +$250 each, but the trace runs faster. You start with <b>1 heat</b>.' },
         { when: 'breach', html: '<b>BREACH</b>. The exit could be any of three. Run.' }
       ],
       rules: RULES.concat([HEX_RULE, CAMERA_RULE, DECOY_WORM_RULE])
@@ -914,6 +939,11 @@
       tagline: 'The finale. Three guards, two cameras, two firewalls, a lock, and three ways out.',
       turnLimit: 15,
       programs: { sniff: 2, spoof: 2, decoy: 2, worm: 1, brute: 1 },
+      loadout: { pick: 5, pool: { sniff: 2, spoof: 2, decoy: 2, worm: 1, brute: 1, tunnel: 1, freeze: 1 }, default: ['sniff', 'spoof', 'decoy', 'worm', 'brute'] },
+      alerts: [
+        { at: 5, kind: 'lockdown', nodes: ['F1', 'F2', 'LK'], text: 'Containment: every firewall and BIOLOCK close again.' },
+        { at: 7, kind: 'spawn', sentry: { id: 'D', patrol: ['LB', 'TK', 'UP', 'TK'] }, text: 'A fourth guard starts at LOBBY.' }
+      ],
       map: [
         'NA KP V  LG .',
         'ZR LK C1 OP SW',

@@ -32,6 +32,8 @@
  *   extract{node}  breach{exit,burned}  traceStart{}
  *   aiOffer{offer,voice,terms}  ai{offer,trust}
  *   win{exit}  lose{reason}
+ *   v4: alert{level,at,type,nodes?,sentry?}  arrive{sentry,node}
+ *       flip{node,state}  file{node,value,files}  freeze{sentries}  tunnel{from,to}
  *
  * Choices where the spec was silent are marked "Choice:".
  */
@@ -52,15 +54,23 @@
   // PAR drops by half of UNKNOWN's cut (see parOf).
   var PAR_SHARE = 0.5;
   var PAY = { heat: 40, turn: 30 };
+  // v4: a side file pays this on Extract, and adds +1 to the trace clock.
+  var FILE_VALUE = 250;
+  var FREEZE_RANGE = 2;
+  var FREEZE_TURNS = 1;
+  var TUNNEL_RANGE = 2;
 
   var PROGRAMS = {
     sniff: { name: 'Sniff', target: 'self', cost: 1, desc: 'Reveals hidden nodes within 2 hops, and which exit BREACH will open.' },
     spoof: { name: 'Spoof', target: 'self', cost: 1, desc: 'Scans and bumps miss you until your next turn.' },
     decoy: { name: 'Decoy', target: 'node', cost: 1, desc: 'Plants bait on a linked node. The nearest Sentry within 3 hops goes for it.' },
     worm: { name: 'Worm', target: 'node', cost: 1, desc: 'Infects a linked node. A Sentry that steps on it is stunned for 2 turns.' },
-    brute: { name: 'Brute', target: 'barrier', cost: 2, desc: 'Opens a linked lock or firewall now. 2 actions, +1 heat, and loud: Sentries within 3 hops come to look.' }
+    brute: { name: 'Brute', target: 'barrier', cost: 2, desc: 'Opens a linked lock or firewall now. 2 actions, +1 heat, and loud: Sentries within 3 hops come to look.' },
+    // v4 (loadout jobs)
+    tunnel: { name: 'Tunnel', target: 'node', cost: 1, desc: 'Opens a permanent link to a node 2 hops away. Sentries can use it too.' },
+    freeze: { name: 'Freeze', target: 'self', cost: 1, desc: 'Every Sentry and camera within 2 hops skips its next phase.' }
   };
-  var PROGRAM_ORDER = ['sniff', 'spoof', 'decoy', 'worm', 'brute'];
+  var PROGRAM_ORDER = ['sniff', 'spoof', 'decoy', 'worm', 'brute', 'tunnel', 'freeze'];
 
   function clone(x) { return JSON.parse(JSON.stringify(x)); }
   function programCost(prog) { return PROGRAMS[prog] ? PROGRAMS[prog].cost : 1; }
@@ -165,7 +175,10 @@
       };
     });
     var charges = {};
-    PROGRAM_ORDER.forEach(function (p) { if (job.programs[p]) charges[p] = job.programs[p]; });
+    var progs = programsFor(job, opts.loadout);
+    PROGRAM_ORDER.forEach(function (p) { if (progs[p]) charges[p] = progs[p]; });
+    var switches = {};
+    (job.switches || []).forEach(function (w) { switches[w.at] = 'a'; });
     var entry = entryOf(job);
     var par = opts.par || (job.payout && job.payout.par) || 0;
     var state = {
@@ -180,12 +193,16 @@
       detected: false,
       nodes: nodes,
       extraLinks: [],
-      sentries: job.sentries.map(function (s) {
-        return {
-          id: s.id, pos: s.start, loop: s.patrol.slice(), loopIndex: s.loopIndex || 0, camera: !!s.camera,
-          stun: 0, intent: null, cooldown: false, lure: null, noisy: false
-        };
+      sentries: job.sentries.filter(function (s) { return !s.arrives; }).map(makeSentry),
+      // v4: Sentries that join later (a Tracer's arrival turn, or an alert).
+      incoming: job.sentries.filter(function (s) { return s.arrives; }).map(function (s) {
+        return { def: s, turn: s.arrives, why: 'arrive' };
       }),
+      alerts: {},          // v4: alert levels already fired, by index
+      switches: switches,  // v4: switch node -> 'a' | 'b'
+      files: {},           // v4: side files extracted
+      fileCash: 0,
+      loadout: Object.keys(progs).filter(function (p) { return progs[p]; }),
       cash: 0,
       taken: {},
       breach: false,
@@ -209,6 +226,30 @@
     return game;
   }
 
+  function makeSentry(s) {
+    return {
+      id: s.id, pos: s.start, loop: s.patrol.slice(), loopIndex: s.loopIndex || 0, camera: !!s.camera,
+      stun: 0, intent: null, cooldown: false, lure: null, noisy: false,
+      tracer: !!s.tracer, trail: 0
+    };
+  }
+
+  // v4 loadout: a job with `loadout` lets the player pick `pick` programs
+  // from its pool. `chosen` is a list of program ids (invalid or short lists
+  // fall back to the job's default pick). Charges per program come from the
+  // pool. Jobs without a loadout use `programs` as before.
+  function programsFor(job, chosen) {
+    var lo = job.loadout;
+    if (!lo) return job.programs;
+    var ok = chosen && chosen.length === lo.pick && chosen.every(function (p, i) {
+      return lo.pool[p] && chosen.indexOf(p) === i;
+    });
+    var list = ok ? chosen : lo.default;
+    var out = {};
+    list.forEach(function (p) { out[p] = lo.pool[p]; });
+    return out;
+  }
+
   // ---------- lookups ----------
 
   function nodeDef(job, id) {
@@ -218,7 +259,32 @@
 
   function label(game, id) { var d = nodeDef(game.job, id); return d ? d.label : id; }
 
-  function allLinks(game) { return game.job.links.concat(game.state.extraLinks); }
+  // v4 switches: a switch node has two link sets, a and b. Only the active
+  // set exists; stepping onto the switch flips it.
+  function switchOff(game) {
+    var sw = game.job.switches;
+    if (!sw || !sw.length) return null;
+    var off = {};
+    sw.forEach(function (w) {
+      var dead = game.state.switches[w.at] === 'b' ? w.a : w.b;
+      dead.forEach(function (l) { off[l[0] + '|' + l[1]] = off[l[1] + '|' + l[0]] = true; });
+    });
+    return off;
+  }
+
+  function allLinks(game) {
+    var off = switchOff(game);
+    var base = off ? game.job.links.filter(function (l) { return !off[l[0] + '|' + l[1]]; }) : game.job.links;
+    return base.concat(game.state.extraLinks);
+  }
+
+  // Links a switch turns off right now (for drawing them dimmed).
+  function deadLinks(game) {
+    var sw = game.job.switches; if (!sw) return [];
+    var out = [];
+    sw.forEach(function (w) { out = out.concat(game.state.switches[w.at] === 'b' ? w.a : w.b); });
+    return out;
+  }
 
   function neighbors(game, id) {
     var out = [];
@@ -389,6 +455,20 @@
     return c[0] || null;
   }
 
+  // v4 Tracer: before BREACH it walks your trail, one node at a time, in the
+  // order you visited them (skipping loops you closed). Off the trail (after
+  // a lure) it heads back to the last trail node it reached.
+  function trailIntent(game, sentry) {
+    var path = game.state.path;
+    var i = path.lastIndexOf(sentry.pos);
+    if (i !== -1) sentry.trail = i;
+    var next = i !== -1 ? path[i + 1] : path[Math.min(sentry.trail, path.length - 1)];
+    if (!next || next === sentry.pos) return { type: 'wait', why: 'trail' };
+    var step = sentryStepToward(game, sentry.pos, next);
+    if (!step || step === sentry.pos) return { type: 'wait', why: 'trail' };
+    return { type: 'move', target: step, why: 'trail' };
+  }
+
   function planIntent(game, sentry) {
     var st = game.state;
     if (sentry.stun > 0) return { type: 'stunned' };
@@ -437,6 +517,7 @@
       }
     }
 
+    if (sentry.tracer) return trailIntent(game, sentry);
     return patrolIntent(game, sentry);
   }
 
@@ -599,7 +680,21 @@
     if (prog === 'decoy') return adj.filter(function (n) { return isOpenNode(game, n) && !st.nodes[n].decoy; });
     if (prog === 'worm') return adj.filter(function (n) { return isOpenNode(game, n) && !st.nodes[n].infected; });
     if (prog === 'brute') return adj.filter(function (n) { return isClosed(game, n); });
+    if (prog === 'tunnel') {
+      var d = bfs(game, st.player, function (n) { return neighbors(game, n); }).dist;
+      return game.job.nodes.map(function (n) { return n.id; }).filter(function (n) {
+        return d[n] === TUNNEL_RANGE && playerCanEnter(game, n);
+      });
+    }
     return [];
+  }
+
+  // Sentries (and cameras) Freeze would hit: within FREEZE_RANGE hops of you
+  // over any link, not already stunned.
+  function freezeTargets(game) {
+    var st = game.state;
+    var d = bfs(game, st.player, function (n) { return neighbors(game, n); }).dist;
+    return st.sentries.filter(function (s) { return s.stun <= 0 && d[s.pos] !== undefined && d[s.pos] <= FREEZE_RANGE; });
   }
 
   function canRun(game, prog) {
@@ -610,6 +705,7 @@
     if (t === 'self') {
       if (prog === 'spoof') return !st.spoof;
       if (prog === 'sniff') return hiddenWithin(game, SNIFF_RANGE).length > 0 || !st.exitKnown;
+      if (prog === 'freeze') return freezeTargets(game).length > 0;
       return true;
     }
     return programTargets(game, prog).length > 0;
@@ -619,8 +715,16 @@
   // everything else it needs your turn to still be running (1+ actions left).
   function canExtract(game) {
     var st = game.state;
-    return !canAct(game) && !st.hasData && nodeDef(game.job, st.player).type === 'target';
+    if (canAct(game)) return false;
+    if (isFile(game, st.player)) return !st.files[st.player];
+    return !st.hasData && nodeDef(game.job, st.player).type === 'target';
   }
+
+  // v4 greed: a side file (node with `file: true`). Extract on it pays
+  // FILE_VALUE and adds +1 to every BREACH trace tick from then on.
+  function isFile(game, id) { var d = nodeDef(game.job, id); return !!(d && d.file); }
+  function fileCount(game) { return Object.keys(game.state.files || {}).length; }
+  function traceRate(game) { return HEAT.trace + fileCount(game); }
 
   function hiddenWithin(game, range) {
     var d = bfs(game, game.state.player, function (n) { return neighbors(game, n); }).dist;
@@ -725,6 +829,7 @@
       { id: 'speed', label: 'Turns to spare', amount: PAY.turn * (job.turnLimit - st.turn) },
       { id: 'heat', label: 'Heat', amount: st.heat ? -PAY.heat * st.heat : 0 }
     ];
+    if (st.fileCash) lines.splice(2, 0, { id: 'files', label: 'Side files', amount: st.fileCash });
     var sub = lines.reduce(function (a, l) { return a + l.amount; }, 0);
     var rate = cutRate(game);
     var cut = 0;
@@ -800,6 +905,17 @@
       }
     });
     pickUpCache(game, id, events);
+    (game.job.switches || []).forEach(function (w) {
+      if (w.at !== id) return;
+      st.switches[id] = st.switches[id] === 'b' ? 'a' : 'b';
+      ev(game, events, 'flip', def.label + ' flipped. ' + (w.text ? w.text[st.switches[id]] : 'The links changed.'), { node: id, state: st.switches[id] });
+      // Intents stay as shown, except a step along a link that just went
+      // dark: that Sentry re-plans (its new step shows at once).
+      st.sentries.forEach(function (x) {
+        var it = x.intent;
+        if (it && it.type === 'move' && it.target !== x.pos && !isLinked(game, x.pos, it.target)) planSentry(game, x);
+      });
+    });
     if (st.hasData && id === st.exit) {
       st.status = 'won';
       game.undoStack = []; // a won run is final
@@ -862,6 +978,15 @@
         ev(game, events, 'exitKnown', 'Sniff traced the way out: BREACH will open ' + label(game, ex) + '.', { exit: ex });
       }
       clearUndo = true; // you can't un-learn information
+    } else if (prog === 'freeze') {
+      var hit = freezeTargets(game);
+      if (!hit.length) return fail('No Sentry within 2 hops.');
+      snapshot(game);
+      hit.forEach(function (x) { x.stun = Math.max(x.stun, FREEZE_TURNS); });
+      ev(game, events, 'program', 'Freeze: ' + hit.map(function (x) { return (x.camera ? 'Camera ' : 'Sentry ') + x.id; }).join(', ') + ' skip their next phase.',
+        { prog: prog });
+      ev(game, events, 'freeze', 'Frozen for 1 phase.', { sentries: hit.map(function (x) { return x.id; }) });
+      hit.forEach(function (x) { planSentry(game, x); });
     } else if (prog === 'spoof') {
       if (st.spoof) return fail('Spoof is already running.');
       snapshot(game);
@@ -878,6 +1003,11 @@
         ev(game, events, 'program', 'Decoy planted on ' + lbl + '.' +
           (s ? ' Sentry ' + s.id + ' took the bait.' : ' No Sentry is close enough to notice.'),
           { prog: prog, node: target, lured: s ? s.id : null });
+      } else if (prog === 'tunnel') {
+        var from0 = st.player;
+        st.extraLinks.push([from0, target]);
+        ev(game, events, 'program', 'Tunnel dug from ' + label(game, from0) + ' to ' + lbl + '.', { prog: prog, node: target });
+        ev(game, events, 'tunnel', 'New link: ' + label(game, from0) + ' ↔ ' + lbl + '. Sentries can use it too.', { from: from0, to: target });
       } else if (prog === 'worm') {
         st.nodes[target].infected = true;
         ev(game, events, 'program', 'Worm planted on ' + lbl + '.', { prog: prog, node: target });
@@ -910,6 +1040,14 @@
     if (!canExtract(game)) return fail(canAct(game) || 'Nothing to extract here.');
     snapshot(game);
     var st = game.state; var job = game.job; var events = [];
+    if (isFile(game, st.player)) {
+      st.files[st.player] = true;
+      st.fileCash += FILE_VALUE;
+      var nf = fileCount(game);
+      ev(game, events, 'file', 'Side file from ' + label(game, st.player) + ': +$' + FILE_VALUE + '. The trace will run +' + traceRate(game) + ' a turn.',
+        { node: st.player, value: FILE_VALUE, files: nf });
+      return { ok: true, events: events };
+    }
     st.hasData = true;
     // Extract costs no action: the download is the climax, and you keep
     // the rest of your turn to start running.
@@ -1091,6 +1229,57 @@
       { sentry: s.id, why: it.why || 'patrol' });
   }
 
+  // v4 alert levels: when heat reaches an alert's `at`, the admin acts at
+  // the end of that turn. The levels and what they do are listed on the HUD
+  // from the start, so nothing comes as a surprise.
+  //   spawn:    a new Sentry (alert.sentry: { id, patrol }) joins at patrol[0]
+  //   lockdown: barriers in alert.nodes close again (Brute or a clue reopens)
+  function fireAlerts(game, events) {
+    var st = game.state;
+    (game.job.alerts || []).forEach(function (a, i) {
+      if (st.alerts[i] || st.heat < a.at) return;
+      st.alerts[i] = true;
+      var text = 'ALERT ' + (i + 1) + ': ' + (a.text || 'the admin reacts.');
+      if (a.kind === 'spawn') {
+        st.incoming.push({ def: a.sentry, turn: st.turn, why: 'alert' });
+        ev(game, events, 'alert', text, { level: i + 1, at: a.at, type: a.kind, sentry: a.sentry.id });
+      } else if (a.kind === 'lockdown') {
+        a.nodes.forEach(function (n) { st.nodes[n].open = false; });
+        ev(game, events, 'alert', text, { level: i + 1, at: a.at, type: a.kind, nodes: a.nodes.slice() });
+      }
+    });
+  }
+
+  // Sentries that are due join the board at the first free node of their
+  // patrol, or a free neighbour of it. Never on you or next to you; if
+  // there's no room, they try again next turn.
+  function arrivals(game, events) {
+    var st = game.state;
+    st.incoming = st.incoming.filter(function (x) {
+      if (x.turn > st.turn) return true;
+      var home = x.def.patrol[0];
+      var cands = [home].concat(sentryNeighbors(game, home));
+      var adj = neighbors(game, st.player);
+      var at = cands.filter(function (n) {
+        return n !== st.player && !sentryAt(game, n) && adj.indexOf(n) === -1 && !isAI(game, n);
+      })[0];
+      if (!at) return true;
+      var s = makeSentry({ id: x.def.id, start: at, patrol: x.def.patrol, tracer: x.def.tracer });
+      if (s.tracer) s.trail = 0;
+      st.sentries.push(s);
+      ev(game, events, 'arrive', (s.tracer ? 'A Tracer' : 'Sentry ' + s.id) + ' joined at ' + label(game, at) + '.', { sentry: s.id, node: at, why: x.why });
+      return false;
+    });
+  }
+
+  // Extra state for search de-duplication (tools/beam.js, tools/bot.js):
+  // the v4 fields, and for a Tracer the trail ahead of it.
+  function searchKey(st) {
+    var k = [st.switches, st.files, st.alerts, st.incoming.length, st.extraLinks];
+    if (st.sentries.some(function (s) { return s.tracer; }) || st.incoming.some(function (x) { return x.def.tracer; })) k.push(st.path.slice(-8));
+    return k;
+  }
+
   function tag(events, from, fields) {
     for (var i = from; i < events.length; i++) for (var k in fields) events[i][k] = fields[k];
   }
@@ -1124,9 +1313,9 @@
     if (tracing(game)) {
       if (!st.traceStarted) {
         st.traceStarted = true;
-        ev(game, events, 'traceStart', 'The admin is tracing you. +1 heat every turn now.');
+        ev(game, events, 'traceStart', 'The admin is tracing you. +' + traceRate(game) + ' heat every turn now.');
       }
-      addHeat(game, events, HEAT.trace, 'trace', 'Admin trace.');
+      addHeat(game, events, traceRate(game), 'trace', 'Admin trace.');
     }
     if (st.status === 'playing') {
       st.turn += 1;
@@ -1135,6 +1324,7 @@
         lose(game, events, 'dropped', 'Connection dropped. Out of turns.');
       }
     }
+    if (st.status === 'playing') { fireAlerts(game, events); arrivals(game, events); }
     tag(events, mark, { phase: 'upkeep' });
     // Overclock: ending a turn with actions left banks one extra (max 3).
     st.actions = ACTIONS_PER_TURN + (st.actions > 0 ? 1 : 0);
@@ -1155,7 +1345,8 @@
     isClosed: isClosed, isBarrier: isBarrier, isBurned: isBurned, legalMoves: legalMoves, programTargets: programTargets,
     canRun: canRun, canExtract: canExtract, threats: threats, tracing: tracing, stars: stars,
     payout: payout, bonusMet: bonusMet, LOSSY_BONUS: ['ghost', 'quiet', 'speed', 'cool', 'bare'], exitInfo: exitInfo, resolveJob: resolveJob, canonicalVariant: canonicalVariant,
-    programCost: programCost,
+    programCost: programCost, programsFor: programsFor, deadLinks: deadLinks, isFile: isFile, fileCount: fileCount,
+    traceRate: traceRate, freezeTargets: freezeTargets, searchKey: searchKey, FILE_VALUE: FILE_VALUE,
     move: move, runProgram: runProgram, extract: extract, undo: undo, answerAI: answerAI,
     abort: abort, endTurn: endTurn, replan: planAll, blockedReason: blockedReason, canAct: canAct, clone: clone
   };

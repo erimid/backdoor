@@ -142,13 +142,13 @@ function dist(game) {
 // UNKNOWN is never free in the ranking.
 function rank(game) {
   var st = game.state;
-  return 3 * dist(game) + st.heat + (st.detected ? 4 : 0) - st.cash / 50 + (st.ai ? 5 * st.ai.deals : 0);
+  return 3 * dist(game) + st.heat + (st.detected ? 4 : 0) - (st.cash + (st.fileCash || 0)) / 50 + 3 * E.fileCount(game) + (st.ai ? 5 * st.ai.deals : 0);
 }
 
 // De-duplication key for end-of-turn states (the turn is the same for all).
 function stateKey(st) {
   return JSON.stringify([st.player, st.hasData, st.breach, st.exitKnown, st.sentries, st.nodes, st.charges,
-    st.taken, st.cash, st.heat, st.detected, st.ai, st.actions, st.wormStuns, st.extraLinks.length]);
+    st.taken, st.cash, st.heat, st.detected, st.ai, st.actions, st.wormStuns, st.extraLinks.length, E.searchKey(st)]);
 }
 
 // ---------- search ----------
@@ -163,7 +163,7 @@ function turnPlans(game, opts) {
     if (st.status === 'won') { out.push({ game: g, labels: labels }); return; }
     if (st.status !== 'playing') return;
     var mk = JSON.stringify([st.player, st.actions, st.nodes, st.sentries, st.charges, st.ai, st.spoof, st.heat,
-      st.hasData, st.exitKnown, st.taken, st.cash, st.extraLinks.length, st.detected, st.wormStuns]);
+      st.hasData, st.exitKnown, st.taken, st.cash, st.extraLinks.length, st.detected, st.wormStuns, E.searchKey(st)]);
     if (seenMid.has(mk)) return;
     seenMid.add(mk);
     if (!(st.ai && st.ai.pending)) {
