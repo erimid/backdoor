@@ -6,7 +6,7 @@
  * plan with the best greedy score: progress toward the goal minus heat, plus
  * a little seeded noise. No multi-turn planning. Uses the real engine.
  *
- * Usage: node tools/bot.js [job01|job02] [--variant N] [--ai POLICY] [--seeds 200] [--naive] [--verbose]
+ * Usage: node tools/bot.js [job01|job02] [--variant N] [--ai POLICY] [--seeds 200] [--sentry-cost N] [--verbose]
  *        node tools/bot.js job02 --sweep [--seeds 30]
  *   --sweep: every shipped night in js/variants.js, grouped by exit. On a job
  *   with an AI it compares trusting offer 1 with refusing it per exit and
@@ -17,9 +17,11 @@
  *   (the spec's measure) with refusing everything, and prints the freeze
  *   deal and trust-everything for reference.
  *
- * Note: this is not a literal port of the design-phase bot. It adds
- * W.sentry (a node a Sentry stands on looks blocked) and scores an unknown
- * exit as the average of the candidates. --naive sets W.sentry = 0.
+ * Weights are the spec's (brute 2, honey 3, heat 3, detected 2, noise 15):
+ * a node with a Sentry on it costs the same as any other node in the path
+ * estimate. One addition: an unknown exit is scored as the average of the
+ * candidates (see dist()). --sentry-cost N adds N per Sentry-occupied node
+ * on the path, for comparison only; no target or validator check uses it.
  */
 var E = require('../js/engine.js');
 var JOBS = require('../js/jobs.js');
@@ -27,14 +29,9 @@ var B = require('./beam.js');
 var VARIANTS = null;
 try { VARIANTS = require('../js/variants.js'); } catch (e) { VARIANTS = null; }
 
-// Weights. `sentry` is new in v2: a node with a Sentry standing on it costs
-// extra, because the engine won't let you step onto it and a player can see
-// that. The design-phase bot (--naive: sentry = 0) treats it as an open node,
-// so it plans routes it can't walk and idles next to the Sentry. Since the
-// rest rule change (a resting Sentry next to you takes a patrol step instead
-// of camping), the naive bot wins Job 01 too, but it waits around more; run
-// both and report both.
-var W = { brute: 2, honey: 3, heat: 3, det: 2, cash: 0.05, sentry: 3, noise: 15 };
+// The spec's weights. `sentry` is 0: the reference bot treats a node with a
+// Sentry on it like any other node. (--sentry-cost N, for comparison only.)
+var W = { brute: 2, honey: 3, heat: 3, det: 2, cash: 0.05, sentry: 0, noise: 15 };
 
 function mulberry32(a) {
   return function () {
@@ -56,7 +53,7 @@ function sp(g, a, b) {
     if (E.isBurned(g, n)) return Infinity;
     if (E.isClosed(g, n)) return st.charges.brute ? 1 + W.brute : Infinity;
     if (d.type === 'honeypot' && !ns.hidden && !ns.sprung) return 1 + W.honey;
-    if (E.sentryAt(g, n)) return 1 + W.sentry;
+    if (W.sentry && E.sentryAt(g, n)) return 1 + W.sentry;
     return 1;
   }
   var D = {}; D[a] = 0; var Q = [a]; var done = {};
@@ -141,7 +138,7 @@ function run(job, variant, par, policy, seed) {
   }
   var st = g.state;
   return {
-    status: st.status, reason: st.reason, stars: E.stars(g).count, payout: E.payout(g).total, turn: st.turn, heat: st.heat,
+    status: st.status, reason: st.reason, stars: E.stars(g).count, parMet: !!E.stars(g).par, payout: E.payout(g).total, turn: st.turn, heat: st.heat,
     hasData: st.hasData, turnsEnded: turns, stayed: stay, line: line.join(' | ')
   };
 }
@@ -154,12 +151,12 @@ function batch(jobIndex, vIndex, policy, seeds, verbose) {
   var variant = table ? table.variants[vIndex] : E.canonicalVariant(job);
   if (!variant) throw new Error('no variant ' + vIndex + ' for ' + job.id);
   var par = table ? table.par : job.payout.par;
-  var n = seeds, wins = 0, three = 0, pay = 0, turns = 0, ended = 0, stayed = 0, lostBefore = 0, lostAfter = 0, reasons = {};
+  var n = seeds, wins = 0, three = 0, atPar = 0, pay = 0, turns = 0, ended = 0, stayed = 0, lostBefore = 0, lostAfter = 0, reasons = {};
   for (var s = 1; s <= n; s++) {
     var r = run(job, variant, par, policy, s);
     if (verbose) console.log('  seed ' + s + ': ' + r.status + (r.reason ? '(' + r.reason + ')' : '') + ' ' + r.stars + '★ $' + r.payout + ' :: ' + r.line);
     ended += r.turnsEnded; stayed += r.stayed;
-    if (r.status === 'won') { wins++; pay += r.payout; turns += r.turn; if (r.stars === 3) three++; }
+    if (r.status === 'won') { wins++; pay += r.payout; turns += r.turn; if (r.stars === 3) three++; if (r.parMet) atPar++; }
     else {
       if (r.hasData) lostAfter++; else lostBefore++;
       reasons[r.reason] = (reasons[r.reason] || 0) + 1;
@@ -167,11 +164,11 @@ function batch(jobIndex, vIndex, policy, seeds, verbose) {
   }
   var out = {
     job: job.id, variant: variant.id || 'v00', policy: policy, seeds: n, par: par,
-    win: pct(wins, n), three: pct(three, n), meanPayout: n ? pay / n : 0, meanWinPayout: wins ? pay / wins : 0,
+    win: pct(wins, n), three: pct(three, n), atPar: pct(atPar, n), meanPayout: n ? pay / n : 0, meanWinPayout: wins ? pay / wins : 0,
     meanTurns: wins ? turns / wins : 0, stay: pct(stayed, ended), lostBefore: lostBefore, lostAfter: lostAfter, reasons: reasons
   };
   console.log(job.id + ' ' + out.variant + ' ai=' + policy + ' (' + n + ' seeds, par $' + par + '): win ' + out.win.toFixed(1) + '%, 3★ ' +
-    out.three.toFixed(1) + '%, mean payout $' + out.meanPayout.toFixed(0) + ' ($' + out.meanWinPayout.toFixed(0) + ' per win), mean turns ' +
+    out.three.toFixed(1) + '%, ★2 (payout >= PAR) ' + out.atPar.toFixed(1) + '%, mean payout $' + out.meanPayout.toFixed(0) + ' ($' + out.meanWinPayout.toFixed(0) + ' per win), mean turns ' +
     out.meanTurns.toFixed(1) + ', turns ending on the start node ' + out.stay.toFixed(1) + '%, losses before/after Extract ' +
     lostBefore + '/' + lostAfter + ' ' + JSON.stringify(reasons));
   return out;
@@ -227,7 +224,7 @@ if (require.main === module) {
   var seeds = +arg('--seeds', 200);
   var ai = arg('--ai', null);
   var verbose = args.indexOf('--verbose') !== -1;
-  if (args.indexOf('--naive') !== -1) W.sentry = 0;
+  W.sentry = +arg('--sentry-cost', 0);
   var doSweep = args.indexOf('--sweep') !== -1;
   JOBS.forEach(function (job, ji) {
     if (jobArg && job.id !== jobArg) return;
@@ -261,4 +258,8 @@ if (require.main === module) {
   });
 }
 
-module.exports = { run: run, plans: plans, score: score, batch: batch, sweep: sweep };
+// For tools/validate.js's fairness filter (e) only: a "sighted" first-timer
+// who treats a node with a Sentry on it as costly. Not used by any target.
+function setSentryCost(n) { W.sentry = +n || 0; }
+
+module.exports = { run: run, plans: plans, score: score, batch: batch, sweep: sweep, setSentryCost: setSentryCost, W: W };

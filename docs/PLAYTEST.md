@@ -40,7 +40,7 @@ and how close a loss was, so you only need to write what it can't see.
 
 **Job 02 · City Bank, Branch 7**
 
-- Trust UNKNOWN and go through it: the shortcut costs 15% of the payout.
+- Trust UNKNOWN and go through it: the shortcut costs 25% of the payout, and PAR drops by the same share.
 - Middle: Brute the firewall from WIFI.
 - Left: MAIL-02 has the password for AUTH-01. Decoy and Worm handle Sentry B
   (the Worm stun is the bonus star). ADMIN-PC has a cache one hop off the vault.
@@ -81,7 +81,7 @@ and how close a loss was, so you only need to write what it can't see.
   feel like your mistake, not a trap. Note any night where it felt unwinnable.
 - **Trace clock.** +1 heat every turn after BREACH. Too fast, too slow?
 - **Greed vs PAR.** Are you chasing caches, or racing for the exit?
-- **UNKNOWN's deals.** Refusing is free; trusting costs 15% (shortcut) or 25% (freeze). Is either one an
+- **UNKNOWN's deals.** Refusing is free; trusting costs 25% per deal (PAR drops by the same share). Is either one an
   obvious pick every time?
 - **The results screen.** Payout count-up, stars, NEW BEST: does it pull you into
   another round, or do you skip past it?

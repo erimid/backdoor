@@ -22,7 +22,7 @@
     'Getting scanned (+3) or bumped (+2) raises <span class="t-threat">heat</span>. At 10 heat you are traced.',
     'Hidden <b>?</b> nodes hold loot or a trap. Walking in is final: no Undo.',
     '<span class="t-gold">$</span> caches pay out just for stepping on them. After Extract they pay double.',
-    'Reach the <span class="t-gold">gold</span> target and Extract. That starts the <b>BREACH</b>: ENTRY burns, one of the dashed exits opens, Sentries hunt you, and the trace adds +1 heat every turn.',
+    'Reach the <span class="t-gold">gold</span> target and Extract (it uses no action, so you can still run that turn). That starts the <b>BREACH</b>: ENTRY burns, one of the dashed exits opens, Sentries hunt you, and the trace adds +1 heat every turn. A Sentry that just scanned you backs off a step.',
     '<b>Brute</b> takes 2 actions and opens a lock or firewall at once. It is loud: Sentries within 3 hops come to look.',
     'Payout: contract + caches + $30 per spare turn − $40 per heat. Stars: get out, beat PAR, and the bonus.',
     '<b>Undo</b> is free within a turn, until you learn something new.'
@@ -74,7 +74,7 @@
         { when: 'adjBarrier', html: '<b>Brute</b> takes 2 actions and opens it now. It’s loud: Sentries within 3 hops come to look.' },
         { when: 'hiddenNear', html: '<b>?</b> nodes are loot or a trap. <b>Sniff</b> tells you which, and which exit you’ll get.' },
         { when: 'banked', html: 'Banked: <b>3 actions</b> this turn. End a turn with an action left to bank it again.' },
-        { when: 'onTarget', html: '<b>EXTRACT</b>. Then it gets loud.' },
+        { when: 'onTarget', html: '<b>EXTRACT</b> uses no action: grab it and keep moving. Then it gets loud.' },
         { when: 'breach', html: '<b>BREACH</b>. ENTRY is burned. Run for the <span class="t-gold">gold EXIT</span>. Sentries hunt you now. Their arrows show where.' }
       ],
       rules: RULES
@@ -120,14 +120,14 @@
             id: 'shortcut', trigger: 'adjacent',
             voice: 'the {trap} is bait. come through me and i’ll open the switch.',
             // {cut} and {another} are filled in by the engine (E.offerTerms).
-            terms: 'Trust: path to SWITCH opens. UNKNOWN takes {another}{cut} of the payout.',
-            cut: 0.15,
+            terms: 'Trust: path to SWITCH opens. UNKNOWN takes {another}{cut} of the payout, and PAR drops by the same share.',
+            cut: 0.25,
             trustLink: ['U', 'S']
           },
           {
             id: 'freeze', trigger: 'extract',
             voice: 'they’re coming for you. let me ride your copy and i’ll freeze them.',
-            terms: 'Trust: every Sentry stalls for 1 phase. UNKNOWN takes {another}{cut}.',
+            terms: 'Trust: every Sentry stalls for 1 phase. UNKNOWN takes {another}{cut}, and PAR drops by the same share.',
             cut: 0.25
           }
         ],
@@ -163,7 +163,7 @@
       rules: RULES.concat([
         '<b>Decoy</b> lures the single nearest Sentry within 3 hops. <b>Worm</b> stuns a Sentry that steps on it for 2 turns.',
         'Locks open with <b>Brute</b>, or for free if you find the password somewhere on the network.',
-        'Something <span class="t-ai">else</span> is on this network. It makes offers. Refusing is free; trusting costs a cut.'
+        'Something <span class="t-ai">else</span> is on this network. It makes offers. Refusing is free; trusting costs a cut of the payout (PAR drops by the same share).'
       ])
     }
   ];

@@ -373,6 +373,20 @@
   }
 
 
+  // BREACH, resting next to you: back off one step to a free node that is not
+  // next to you and is not the exit, the farthest from you first (then link
+  // order). Null if there is none.
+  function retreatStep(game, sentry) {
+    var st = game.state;
+    var dp = sentryDistances(game, st.player);
+    var c = sentryNeighbors(game, sentry.pos).filter(function (n) {
+      if (n === st.player || n === st.exit || sentryAt(game, n)) return false;
+      return neighbors(game, n).indexOf(st.player) === -1;
+    });
+    c.sort(function (a, b) { return (dp[b] === undefined ? 99 : dp[b]) - (dp[a] === undefined ? 99 : dp[a]); });
+    return c[0] || null;
+  }
+
   function planIntent(game, sentry) {
     var st = game.state;
     if (sentry.stun > 0) return { type: 'stunned' };
@@ -394,13 +408,17 @@
         var step = sentryStepToward(game, sentry.pos, st.player);
         if (step && step !== sentry.pos) return { type: 'move', target: step, why: 'hunt' };
       } else {
-        // Resting (cooldown): instead of standing still it goes back to its
-        // patrol for a phase (as in the design-phase engine), which may mean
-        // walking into you (a telegraphed bump you can dodge). So a Sentry
-        // can't camp an exit or a chokepoint by alternating scan and rest.
-        // If its patrol can't move it (stuck behind another Sentry) while the
-        // Sentries cut off every route from you to the exit, it steps aside
-        // to reopen one, and only rests if it can't.
+        // Resting (cooldown): instead of standing still it backs off one step
+        // (why 'retreat') to a node that is not next to you and not the exit,
+        // so a Sentry can't camp an exit or a chokepoint by alternating scan
+        // and rest: every scan buys you one phase to slip past. With nowhere
+        // to back off to, it takes its patrol step (which may mean walking
+        // into you, a telegraphed bump you can dodge). If that can't move it
+        // either (stuck behind another Sentry) while the Sentries cut off
+        // every route from you to the exit, it steps aside to reopen one, and
+        // only rests if it can't.
+        var back = retreatStep(game, sentry);
+        if (back) return { type: 'move', target: back, why: 'retreat' };
         var pat = patrolIntent(game, sentry);
         var stuck = pat.type !== 'move' || (pat.target !== st.player && sentryAt(game, pat.target));
         if (!stuck || routeOut(game)) return pat;
@@ -422,6 +440,42 @@
   function planAll(game) {
     assignDecoys(game);
     game.state.sentries.forEach(function (s) { planSentry(game, s); });
+    unbox(game);
+  }
+
+  // No softlock: if Sentries are the reason you can't move at all (every node
+  // linked to yours is blocked, and at least one only by a Sentry), and none
+  // of those Sentries is about to leave, the first resting one steps off to a
+  // free node instead. A Sentry that isn't resting scans you first and rests
+  // the phase after, so you are never boxed in for more than two enemy
+  // phases (three if a blocker is stunned). This matters most on UNKNOWN,
+  // which Sentries can't enter: two of them on its doorways would otherwise
+  // seal you in. Limit: it does not untangle two hunters trading places in a
+  // one-door pocket (one scans from the doorway, the other waits behind it);
+  // that holds the doorway until the trace clock or heat ends the run.
+  function unbox(game) {
+    var st = game.state;
+    if (st.status !== 'playing') return;
+    var adj = neighbors(game, st.player);
+    if (adj.some(function (n) { return playerCanEnter(game, n); })) return;
+    var blockers = st.sentries.filter(function (s) { return adj.indexOf(s.pos) !== -1; });
+    if (!blockers.length) return;
+    var leaving = blockers.some(function (s) {
+      var it = s.intent;
+      return it && it.type === 'move' && it.target !== st.player && !sentryAt(game, it.target);
+    });
+    if (leaving) return;
+    var taken = st.sentries.map(function (s) { return s.intent && s.intent.type === 'move' ? s.intent.target : null; });
+    for (var i = 0; i < blockers.length; i++) {
+      var s = blockers[i];
+      if (s.stun > 0 || !s.cooldown || hasLure(game, s)) continue;
+      var free = sentryNeighbors(game, s.pos).filter(function (n) {
+        return n !== st.player && !sentryAt(game, n) && taken.indexOf(n) === -1;
+      });
+      if (!free.length) continue;
+      s.intent = { type: 'move', target: free[0], why: 'retreat', atPlayer: false };
+      return;
+    }
   }
 
   // ---------- helpers for actions ----------
@@ -502,6 +556,8 @@
     return programTargets(game, prog).length > 0;
   }
 
+  // Extract is a free action (see extract()): it uses no action, but like
+  // everything else it needs your turn to still be running (1+ actions left).
   function canExtract(game) {
     var st = game.state;
     return !canAct(game) && !st.hasData && nodeDef(game.job, st.player).type === 'target';
@@ -545,8 +601,18 @@
     return false;
   }
 
-  function parOf(game) {
+  function baseParOf(game) {
     return game.par || game.state.par || (game.job.payout && game.job.payout.par) || 0;
+  }
+
+  // PAR after UNKNOWN's cut: the cut comes off the bar as well as the money
+  // (rounded down to $10), so a deal costs you dollars but a clean trusted
+  // run can still beat PAR. Without this, a 25% cut put ★2 (and so ★3) out of
+  // reach on almost every trusted run: trusting was a trap, not a price.
+  function parOf(game) {
+    var p = baseParOf(game);
+    var rate = cutRate(game);
+    return rate > 0 ? Math.floor(p * Math.max(0, 1 - rate) / 10) * 10 : p;
   }
 
   // UNKNOWN's cut for one offer (a fraction of the payout). Offers can set
@@ -593,12 +659,14 @@
     var cut = 0;
     if (rate > 0) {
       // Choice: the cut is taken from a non-negative subtotal, so it never adds money.
-      cut = sub > 0 ? -Math.round(sub * rate) : 0;
+      // The cut line absorbs the $10 rounding, so the lines always add up to
+      // the total shown.
+      cut = sub > 0 ? round10(sub * Math.max(0, 1 - rate)) - round10(sub) : 0;
       lines.push({ id: 'cut', label: 'UNKNOWN’s cut', amount: cut });
     }
-    var total = Math.max(0, round10(sub + cut));
+    var total = Math.max(0, round10(sub) + cut);
     if (st.status === 'lost') total = 0;
-    return { lines: lines, cut: cut, total: total, par: parOf(game) };
+    return { lines: lines, cut: cut, total: total, par: parOf(game), basePar: baseParOf(game) };
   }
 
   function stars(game) {
@@ -772,7 +840,8 @@
     snapshot(game);
     var st = game.state; var job = game.job; var events = [];
     st.hasData = true;
-    st.actions -= 1;
+    // Extract costs no action: the download is the climax, and you keep
+    // the rest of your turn to start running.
     st.breach = true;
     st.breachTurn = st.turn;
     st.exit = job.exits[job.exitIndex];
