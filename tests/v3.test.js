@@ -11,8 +11,8 @@ const sentry = (g, id) => g.state.sentries.find(s => s.id === id);
 function setup(j, fn, opts) { const g = E.newGame(j, opts); fn(g.state, g); E.replan(g); return g; }
 function ok(r) { assert.ok(r.ok, r.reason); return r; }
 
-test('there are ten jobs, numbered in order', () => {
-  assert.equal(JOBS.length, 10);
+test('there are fifteen jobs, numbered in order', () => {
+  assert.equal(JOBS.length, 15);
   JOBS.forEach((j, i) => {
     assert.equal(j.id, 'job' + String(i + 1).padStart(2, '0'));
     assert.equal(j.number, String(i + 1).padStart(2, '0'));
@@ -20,7 +20,7 @@ test('there are ten jobs, numbered in order', () => {
 });
 
 test('every job is well formed: links between real, neighbouring cells, one entry and one target', () => {
-  JOBS.forEach(j => {
+  JOBS.filter(j => j.layout !== 'hex').forEach(j => {
     const by = Object.fromEntries(j.nodes.map(n => [n.id, n]));
     const cells = new Set(j.nodes.map(n => n.col + ',' + n.row));
     assert.equal(cells.size, j.nodes.length, j.id + ': two nodes share a cell');

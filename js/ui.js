@@ -221,16 +221,55 @@
     var W = Math.min(app.clientWidth || window.innerWidth, 560) - 32;
     W = Math.max(300, W);
     var s = W / 358;
+    var job = ui.game && ui.game.job;
+    if (job && job.layout === 'hex') return hexGeometry(job, W, s);
     var N = Math.round(Math.max(56, Math.min(76, 60 * s)));
     var H = Math.round(396 * s);
     var padX = Math.round(10 * s), padY = Math.round(16 * s);
+    var gx = function (c) { return padX + c * (W - 2 * padX - N) / 3; };
+    var gy = function (r) { return padY + r * (H - 2 * padY - N) / 4; };
     return {
-      W: W, H: H, N: N,
-      x: function (c) { return padX + c * (W - 2 * padX - N) / 3; },
-      y: function (r) { return padY + r * (H - 2 * padY - N) / 4; }
+      W: W, H: H, N: N, x: gx, y: gy,
+      px: function (d) { return gx(d.col); }, py: function (d) { return gy(d.row); }
     };
   }
-  function tile(g, id) { var d = def(id); return { x: g.x(d.col), y: g.y(d.row), N: g.N }; }
+  // Hex boards (Jobs 11+): pointy-top cells, odd rows shifted half a cell
+  // right, so every node has up to six neighbours. The board grows down to
+  // fit the job's rows; the width stays the phone's.
+  function hexGeometry(job, W, s) {
+    var maxCol = 0, maxRow = 0;
+    job.nodes.forEach(function (n) { if (n.col > maxCol) maxCol = n.col; if (n.row > maxRow) maxRow = n.row; });
+    var padX = Math.round(6 * s), padY = Math.round(10 * s);
+    var N = Math.round(Math.max(44, Math.min(60, 46 * s)));
+    var dx = (W - 2 * padX - N) / (maxCol + 0.5);
+    var dy = dx * Math.sqrt(3) / 2;
+    var H = Math.round(2 * padY + maxRow * dy + N);
+    return {
+      W: W, H: H, N: N, hex: true, dx: dx, dy: dy, maxCol: maxCol, maxRow: maxRow, padX: padX, padY: padY,
+      px: function (d) { return padX + (d.col + (d.row % 2 ? 0.5 : 0)) * dx; },
+      py: function (d) { return padY + d.row * dy; }
+    };
+  }
+  // The honeycomb behind a hex board: every cell, brighter where a node sits.
+  function hexCells(g, job) {
+    var used = {};
+    job.nodes.forEach(function (n) { used[n.col + ',' + n.row] = true; });
+    var R = g.dx / Math.sqrt(3) - 1.5, out = '';
+    for (var r = 0; r <= g.maxRow; r++) {
+      for (var c = 0; c <= g.maxCol; c++) {
+        var cx = g.px({ col: c, row: r }) + g.N / 2, cy = g.py({ col: c, row: r }) + g.N / 2;
+        if (cx + g.dx / 2 > g.W + 1) continue;
+        var pts = [];
+        for (var k = 0; k < 6; k++) {
+          var a = Math.PI / 180 * (60 * k - 90);
+          pts.push((cx + R * Math.cos(a)).toFixed(1) + ',' + (cy + R * Math.sin(a)).toFixed(1));
+        }
+        out += '<polygon class="hexcell' + (used[c + ',' + r] ? ' on' : '') + '" points="' + pts.join(' ') + '"/>';
+      }
+    }
+    return '<g class="hexcells">' + out + '</g>';
+  }
+  function tile(g, id) { var d = def(id); return { x: g.px(d), y: g.py(d), N: g.N }; }
   function center(g, id) { var t = tile(g, id); return { x: t.x + t.N / 2, y: t.y + t.N / 2 }; }
 
   function displayHeat() { return ui.hudHeat !== null ? ui.hudHeat : ui.game.state.heat; }
@@ -481,6 +520,7 @@
 
     var svg = '<svg class="layer" width="' + g.W + '" height="' + g.H + '" viewBox="0 0 ' + g.W + ' ' + g.H + '" aria-hidden="true">' +
       '<defs><marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0L10 5L0 10z" fill="#FF9F43"/></marker></defs>';
+    if (g.hex) svg += hexCells(g, job);
 
     // Links
     var walked = {};
@@ -507,7 +547,7 @@
         base += '<line class="lk" x1="' + p.x + '" y1="' + p.y + '" x2="' + q.x + '" y2="' + q.y + '"' + attrs + '/>';
       }
     });
-    svg += '<g class="links" stroke="#223040" stroke-width="2" fill="none">' + base + '</g>';
+    svg += '<g class="links" stroke="' + (g.hex ? '#34485E' : '#223040') + '" stroke-width="' + (g.hex ? 3 : 2) + '" fill="none">' + base + '</g>';
     svg += aiLinks;
     svg += '<g class="links-walked" stroke="#3DDCFF" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.85">' + walkedLinks + '</g>';
 
@@ -517,10 +557,10 @@
 
     var nodes = '';
     job.nodes.forEach(function (d) {
-      nodes += '<button class="' + nodeClasses(d.id) + '" data-act="node" data-node="' + d.id + '" aria-label="' + esc(nodeAria(d.id)) + '" style="left:' + g.x(d.col) + 'px;top:' + g.y(d.row) + 'px;width:' + g.N + 'px;height:' + g.N + 'px">' + nodeInner(d.id) + '</button>';
+      nodes += '<button class="' + nodeClasses(d.id) + '" data-act="node" data-node="' + d.id + '" aria-label="' + esc(nodeAria(d.id)) + '" style="left:' + g.px(d) + 'px;top:' + g.py(d) + 'px;width:' + g.N + 'px;height:' + g.N + 'px">' + nodeInner(d.id) + '</button>';
     });
 
-    return '<div class="board' + (breachShown() ? ' breach' : '') + '" style="width:' + g.W + 'px;height:' + g.H + 'px">' + svg + nodes + '</div>';
+    return '<div class="board' + (g.hex ? ' hex' : '') + (breachShown() ? ' breach' : '') + '" style="width:' + g.W + 'px;height:' + g.H + 'px">' + svg + nodes + '</div>';
   }
 
   function renderIntents(g) {
@@ -603,6 +643,8 @@
   function tokenPos(kind, node) {
     var g = ui.geo, t = tile(g, node);
     if (kind === 'you') return { x: t.x + t.N / 2 - 7, y: t.y - 7 };
+    // On a hex board the tiles are round: sit on the rim, top right.
+    if (g.hex) return { x: t.x + t.N * 0.85 - 14, y: t.y + t.N * 0.15 - 14 };
     return { x: t.x + t.N - 14, y: t.y - 14 };
   }
 
@@ -635,7 +677,7 @@
         // 390 px screen: hang them off the token's left side instead.
         var nd = def(ui.shown.s[s.id]);
         var maxCol = 0; ui.game.job.nodes.forEach(function (n) { if (n.col > maxCol) maxCol = n.col; });
-        el.classList.toggle('flipl', !!nd && nd.col === maxCol);
+        el.classList.toggle('flipl', !!nd && (ui.geo.hex ? q.x > ui.geo.W - 70 : nd.col === maxCol));
       }
       if (!ui.playback) {
         el.classList.toggle('stunned', s.stun > 0 || (s.intent && s.intent.type === 'stunned'));

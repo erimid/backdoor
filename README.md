@@ -1,11 +1,11 @@
-# Backdoor: hacking minigame prototype (v3)
+# Backdoor: hacking minigame prototype (v3 + hex jobs)
 
 A throwaway prototype of the hacking minigame from the Backdoor game app. It
 answers one question: **is hacking fun enough that you want another round?**
 
 v2's shape is **get in, get greedy, get out**: sneak to the target, Extract,
 then run for a different exit while the Sentries hunt you and the trace clock
-ticks. Ten handmade jobs that get harder as you go, each with solver-checked
+ticks. Fifteen handmade jobs (the last five on hex boards) that get harder as you go, each with solver-checked
 seeded variants:
 
 | Job | Name | What's new | Bonus ★ |
@@ -19,7 +19,12 @@ seeded variants:
 | 07 | Golden Ace Casino | UNKNOWN returns, plus a camera and two patrols | Cool (heat ≤ 5) |
 | 08 | Port of Harlow | Three patrols, two firewalls, two Decoys, the biggest board | Worm stun |
 | 09 | Federal Reserve, Vault 4 | You **start at 2 heat**, a locked vault door, a camera, two patrols, three exits | Fast (out by turn 11) |
-| 10 | Nimbus Data Center | The finale: three cameras and a guard, **three** possible exits | Cool (heat ≤ 4) |
+| 10 | Nimbus Data Center | Three cameras and a guard, **three** possible exits | Cool (heat ≤ 4) |
+| 11 | Halcyon Hotel | **Hex board**: six-way links, a hole in the middle, a camera on the target | Ghost |
+| 12 | Metro Transit Control | A guard circling six platforms round a gap, a lock with a password clue | Greedy |
+| 13 | Orbis Genomics | UNKNOWN in the middle; the lock's code is in the far corner | Quiet (no Brute) |
+| 14 | Aurora Exchange | Three cameras watch every way into the target; start at 1 heat; three exits | Fast (out by turn 10) |
+| 15 | Helix Biobank | The finale: three guards, two cameras, two firewalls, a lock, three exits | Worm stun |
 
 ## Play it
 
@@ -96,6 +101,37 @@ heat, routeKey }, alt: { forbid, routeKey, stars, payout } }`. The beam search
 ranks states by `3 × distance + heat + 4 × detected − cash / 50` (+5 per AI
 deal), keeps 60 (150 if that fails), and reserves a third of the beam for
 states that already meet the bonus objective.
+
+## Hex jobs (11 to 15)
+
+Jobs 11 to 15 are drawn on a hexagonal board; Jobs 01 to 10 keep the square
+grid. The engine is unchanged (it only ever saw nodes and links); the hex
+parts are data and drawing.
+
+- **Map.** A hex job in `js/jobs.js` gives `map` (one string per row, one
+  token per cell, `.` for empty), `defs` (type, label, icon per id) and
+  `cuts` (walls). `hexJob()` turns that into nodes and links: rows are
+  pointy-top, odd rows shift half a cell right, and every pair of touching
+  cells is linked unless cut. So a node has up to six links.
+- **Size.** 24 to 32 nodes on 5 columns by 7 or 8 rows (the square boards had
+  about 20). The board is still the phone's width and grows taller to fit;
+  at 390 × 844 the tallest board and the dock fit without scrolling.
+- **Checks.** Same validator, bot and smoke tests. `tests/hex.test.js` checks
+  that every link joins touching cells, patrols step along links, and cuts
+  work.
+
+### Hex results
+
+`npm run validate -- --jobs job11,...` and the spec bot (100 seeds, canonical
+night, refusing every offer):
+
+| Job | Nights shipped | PAR | Canonical best line | Sighted bot (median) | Spec bot win | ★2 | Turns on start node |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 11 | 32 / 32 | $1050 | 3★ $1130, turn 7 | 99% | 100% | 29% | 7% |
+| 12 | 24 / 24 | $1350 | 3★ $1660, turn 6 | 100% | 95% | 35% | 12% |
+| 13 | 16 / 16 | $1000 | 3★ $1300, turn 7 | 93% (trust 1: 95%) | 85% (trust 1: 89%) | 85% | 22% |
+| 14 | 22 / 24 | $1500 | 3★ $1550, turn 10 | 71% | 57% | 1% | 18% |
+| 15 | 24 / 24 | $1650 | 3★ $1930, turn 10 | 85% | 7% | 6% | 17% |
 
 ## v3 changes
 
