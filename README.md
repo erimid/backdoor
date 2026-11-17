@@ -133,6 +133,49 @@ night, refusing every offer):
 | 14 | 22 / 24 | $1500 | 3★ $1550, turn 10 | 71% | 57% | 1% | 18% |
 | 15 | 24 / 24 | $1650 | 3★ $1930, turn 10 | 85% | 7% | 6% | 17% |
 
+## v4 changes: more challenge
+
+Six additions, all opt-in per job (data in `js/jobs.js`, rules in
+`js/engine.js`), used on the hex jobs. Jobs 01 to 10 are unchanged.
+
+1. **Alert levels** (`alerts`). When heat reaches an alert's level, the admin
+   acts at the end of that turn: `spawn` adds a Sentry at the start of its
+   patrol (never on or next to you), `lockdown` closes barriers again. The
+   levels are marked **!** on the heat bar from turn 1, listed in the
+   briefing, and the next one sits in the chip row, so nothing is a surprise.
+   Early mistakes now make the rest of the job harder, not just cost $40.
+2. **The Tracer** (`tracer: true`, `arrives: N` on a Sentry; Job 13). It logs
+   in at ENTRY on turn N and walks your exact trail, one node a phase (loops
+   you closed are skipped). You move two nodes a turn, so it only catches you
+   if you stall or double back. It scans like any Sentry when next to you,
+   can be lured and stunned, and hunts like the rest during BREACH. Its
+   token has a dotted ring and the label TRAIL.
+3. **Switches** (`switches`; Job 12's SWITCH). A switch node has two link
+   sets, A and B; only the live set exists, for you and for Sentries.
+   Stepping onto it flips it. Dead links are drawn as dark bridges. A Sentry
+   whose shown step crosses a link that just went dark re-plans at once;
+   every other intent stays as shown.
+4. **Side files** (`file: true` on a node; Jobs 11 and 14). Extract on one
+   (free, like the main Extract) for +$250. Every file you hold adds +1 to
+   each BREACH trace tick, so two files mean +3 heat a turn on the way out.
+5. **Loadout** (`loadout`; Jobs 14 and 15). Tap programs in the briefing to
+   take `pick` of them from a pool. Two new programs: **Tunnel** (1 action:
+   a permanent link from your node to one 2 hops away; Sentries can use it
+   too) and **Freeze** (1 action: every Sentry and camera within 2 hops skips
+   its next phase). The validator, bot and witnesses use the job's default
+   pick, which is the old fixed set.
+6. **Tighter Jobs 11 to 13.** Job 11: 10 turns (was 12), no Decoy, a third
+   porter (D) patrols the middle. Job 12: 12 turns (was 14), no Worm. Job 13:
+   12 turns (was 13), no Worm, plus the Tracer.
+
+Tests: `tests/v4.test.js`. The bot and beam count a side file as about 4
+heat (the trace it adds on a typical getaway), and de-duplicate on the new
+state (`E.searchKey`).
+
+### v4 results
+
+V4_RESULTS
+
 ## v3 changes
 
 Fixes for the five issues v2 left open, then eight new jobs.

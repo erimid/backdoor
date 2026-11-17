@@ -170,7 +170,7 @@
   function startJob(pick) {
     var job = jobById(pick.jobId);
     ui.pick = pick; ui.jobId = pick.jobId; ui.job = job;
-    ui.game = E.newGame(job, { variant: pick.variant, par: pick.par });
+    ui.game = E.newGame(job, { variant: pick.variant, par: pick.par, loadout: pick.loadout });
     ui.selected = null; ui.info = null; ui.overlay = null; ui.feed = [];
     ui.playback = false; ui.preBreach = false; ui.intentIn = false; ui.hudHeat = null;
     ui.hold = null; ui.msgUntil = 0;
@@ -296,7 +296,7 @@
       var ai = l[0] === aiId || l[1] === aiId;
       if (len > g.dx * 1.2) {
         var mx = (p.x + q.x) / 2 - dyl * 0.18, my = (p.y + q.y) / 2 + dxl * 0.18;
-        out += '<path class="lk bridge-far' + (ai ? ' ai' : '') + (walked[k] ? ' walked' : '') + '"' + attrs + ' d="M' + p.x.toFixed(1) + ' ' + p.y.toFixed(1) + ' Q' + mx.toFixed(1) + ' ' + my.toFixed(1) + ' ' + q.x.toFixed(1) + ' ' + q.y.toFixed(1) + '"' +
+        out += '<path class="lk bridge-far' + (ai ? ' ai' : ' tunnel') + (walked[k] ? ' walked' : '') + '"' + attrs + ' d="M' + p.x.toFixed(1) + ' ' + p.y.toFixed(1) + ' Q' + mx.toFixed(1) + ' ' + my.toFixed(1) + ' ' + q.x.toFixed(1) + ' ' + q.y.toFixed(1) + '"' +
           (ai && st.ai && st.ai.refused ? ' opacity="0.4"' : '') + '/>';
         return;
       }
@@ -307,6 +307,16 @@
       out += '<g class="' + cls + '"' + attrs + ' transform="translate(' + mx2.toFixed(1) + ' ' + my2.toFixed(1) + ') rotate(' + ang.toFixed(1) + ')">' +
         '<rect x="' + (-bl / 2) + '" y="-3.5" width="' + bl + '" height="7" rx="3.5"/>' +
         '<rect class="core" x="' + (-bl / 2 + 3) + '" y="-1" width="' + (bl - 6) + '" height="2" rx="1"/></g>';
+    });
+    // v4: links a switch has turned off, drawn dark so you can see what a
+    // flip would open.
+    E.deadLinks(game).forEach(function (l) {
+      var p = center(g, l[0]), q = center(g, l[1]);
+      var dxl = q.x - p.x, dyl = q.y - p.y;
+      var ang = Math.atan2(dyl, dxl) * 180 / Math.PI;
+      var bl = HEX_GAP + 14;
+      out += '<g class="lk bridge dead" data-a="' + l[0] + '" data-b="' + l[1] + '" transform="translate(' + ((p.x + q.x) / 2).toFixed(1) + ' ' + ((p.y + q.y) / 2).toFixed(1) + ') rotate(' + ang.toFixed(1) + ')">' +
+        '<rect x="' + (-bl / 2) + '" y="-3.5" width="' + bl + '" height="7" rx="3.5"/></g>';
     });
     return '<g class="bridges">' + out + '</g>';
   }
@@ -364,9 +374,14 @@
     var trace = hold ? hold.trace : E.tracing(game);
     var heat = displayHeat();
     var segs = '';
+    // v4 alert levels: the segment that triggers one carries a "!" mark
+    // (hollow until it fires).
+    var alertAt = {};
+    (job.alerts || []).forEach(function (a, k) { alertAt[a.at - 1] = st.alerts && st.alerts[k] ? 'al fired' : 'al'; });
     for (var i = 0; i < E.HEAT_MAX; i++) {
       if (i === 4 || i === 7) segs += '<u class="notch"></u>';
-      segs += '<i data-seg="' + i + '"' + (i < heat ? ' class="on" style="background:' + heatColor(i) + '"' : '') + '></i>';
+      var segCls = (i < heat ? 'on' : '') + (alertAt[i] ? ' ' + alertAt[i] : '');
+      segs += '<i data-seg="' + i + '"' + (segCls ? ' class="' + segCls.trim() + '"' : '') + (i < heat ? ' style="background:' + heatColor(i) + '"' : '') + '></i>';
     }
     var nPips = st.banked || st.actions > E.ACTIONS_PER_TURN ? E.ACTIONS_MAX : E.ACTIONS_PER_TURN;
     var pips = '';
@@ -375,7 +390,7 @@
     var total = hold ? hold.total : p.total;
     var ok = total >= p.par;
     return '<div class="card hud">' +
-      '<div class="h-turn' + (trace ? ' trace' : '') + '"><span class="k">' + (trace ? 'TRACE' : 'TURN') + '</span><b>' + (hold ? hold.turn : st.turn) + '<span>/' + job.turnLimit + '</span></b></div>' +
+      '<div class="h-turn' + (trace ? ' trace' : '') + '"><span class="k">' + (trace ? 'TRACE +' + E.traceRate(game) : 'TURN') + '</span><b>' + (hold ? hold.turn : st.turn) + '<span>/' + job.turnLimit + '</span></b></div>' +
       '<div class="h-heat"><span class="k">HEAT <b>' + heat + '</b></span><div class="segs" data-heat="' + heat + '">' + segs + '</div></div>' +
       '<div class="h-act" data-anchor="pips"><span class="k">ACT</span><div class="pips' + (st.banked ? ' banked' : '') + '" aria-label="' + st.actions + ' actions left">' + pips + '</div></div>' +
       '<div class="h-pay' + (ok ? ' ok' : '') + '"><span class="k">PAR $' + p.par + '</span><b class="cash">$' + total + '</b></div>' +
@@ -393,6 +408,7 @@
     } else {
       h += '<div class="chip gold solid">▶ EXIT ' + esc(lbl(info.exit || st.exit)) + '</div>';
     }
+    h += v4Chips(game);
     h += '<div class="chip star' + (st.status === 'won' ? ' done' : st.hasData ? ' warm' : '') + '">★ Out</div>';
     h += '<div class="chip star' + (p.total >= p.par ? ' ok' : ' mute') + '">★ PAR</div>';
     if (job.bonus) {
@@ -411,12 +427,29 @@
     return h + '</div>';
   }
 
+  // v4: the next alert level, a Sentry still to arrive, side files held.
+  function nextAlert(game) {
+    var st = game.state, out = null;
+    (game.job.alerts || []).forEach(function (a, k) { if (!st.alerts[k] && (!out || a.at < out.at)) out = a; });
+    return out;
+  }
+  function v4Chips(game) {
+    var st = game.state, h = '';
+    var na = nextAlert(game);
+    if (na && st.status === 'playing') h += '<div class="chip alert" title="' + esc(na.text) + '">⚠ ' + na.at + ' heat</div>';
+    var inc = (st.incoming || []).filter(function (x) { return x.why === 'arrive'; })[0];
+    if (inc && st.status === 'playing') h += '<div class="chip tracer" title="A Tracer logs in at ENTRY and walks your trail">TRACER T' + inc.turn + '</div>';
+    var nf = E.fileCount(game);
+    if (nf) h += '<div class="chip file">FILES ' + nf + '</div>';
+    return h;
+  }
+
   function intentSummary() {
     var game = ui.game, st = game.state;
     if (st.status !== 'playing') return '';
     return st.sentries.map(function (s) {
       var it = s.intent || {};
-      if (it.type === 'move') return s.id + (it.target === st.player ? ' bumps you' : (it.why === 'retreat' ? ' backs off → ' : ' → ') + lbl(it.target));
+      if (it.type === 'move') return s.id + (it.target === st.player ? ' bumps you' : (it.why === 'retreat' ? ' backs off → ' : it.why === 'trail' ? ' trails → ' : ' → ') + lbl(it.target));
       if (it.type === 'scan') return s.id + ' scans ' + (it.target === st.player ? 'you' : lbl(it.target));
       if (it.type === 'stunned') return s.id + ' stunned';
       if (it.why === 'rest') return s.id + ' rests';
@@ -429,7 +462,8 @@
     var game = ui.game, st = game.state, job = game.job;
     var h = '<div class="tray">';
     E.PROGRAM_ORDER.forEach(function (p) {
-      if (job.programs[p] === undefined && !st.charges[p]) return;
+      var has = st.loadout ? st.loadout.indexOf(p) !== -1 : job.programs[p] !== undefined;
+      if (!has && !st.charges[p]) return;
       var c = st.charges[p] || 0;
       var cost = E.programCost(p);
       var cls = 'prog';
@@ -459,7 +493,9 @@
     var tight = E.canExtract(game);
     return '<div class="actions' + (tight ? ' tight' : '') + '">' +
       '<button class="btn undo" data-act="undo"' + (canUndo ? '' : ' disabled') + '>' + icon('undo', 15) + 'Undo</button>' +
-      (E.canExtract(game) ? '<button class="btn gold extract" data-act="extract" data-anchor="extract">' + icon('extract', 15) + 'EXTRACT</button>' : '') +
+      (E.canExtract(game) ? (E.isFile(game, st.player)
+        ? '<button class="btn gold extract file" data-act="extract" data-anchor="extract" aria-label="Grab the side file: +$' + E.FILE_VALUE + ', trace +1 a turn">' + icon('file', 15) + 'FILE +$' + E.FILE_VALUE + '</button>'
+        : '<button class="btn gold extract" data-act="extract" data-anchor="extract">' + icon('extract', 15) + 'EXTRACT</button>') : '') +
       '<button class="btn primary end' + (hold ? ' hold' : ' nudge') + '" data-act="end"' + (st.status === 'playing' ? '' : ' disabled') + '>' +
       '<span class="l1">' + (hold ? (tight ? 'HOLD · +1' : 'HOLD · +1 next turn') : 'END TURN') + '</span>' +
       (sub ? '<span class="l2">' + esc(sub) + '</span>' : '') + '</button>' +
@@ -481,7 +517,7 @@
       else msg = 'Sentry ' + t.sentry + ' walks into you next (+' + t.heat + '). Move or Spoof.';
       if (th.length > 1 && !st.spoof) msg += ' ' + th[1].sentry + ' too.';
     } else if (breachShown()) {
-      msg = 'BREACH. Run for ' + lbl(st.exit) + '.' + (E.tracing(game) ? ' Trace: +1 heat every turn.' : ' Trace starts next turn.');
+      msg = 'BREACH. Run for ' + lbl(st.exit) + '.' + (E.tracing(game) ? ' Trace: +' + E.traceRate(game) + ' heat every turn.' : ' Trace starts next turn (+' + E.traceRate(game) + ').');
       cls = ' gold'; ic = 'extract';
     } else if (st.actions === 0) {
       msg = 'Out of actions. End your turn.'; cls = ' safe';
@@ -508,6 +544,8 @@
       else if (!known) c.push('exitc');
     }
     if (d.cache && !ns.hidden && !st.taken[id] && d.type !== 'target') c.push('loot');
+    if (d.file) c.push(st.files[id] ? 'file got' : 'file');
+    if (isSwitch(game, id)) c.push('switchnode');
     if (st.player === id) c.push('you');
     else if (ui.picks.indexOf(id) !== -1) c.push('pick');
     else if (!ui.selected && ui.moves.indexOf(id) !== -1) c.push('valid');
@@ -538,6 +576,8 @@
     if (ns.infected) badges.push(['mine', 'WORM']);
     if ((d.type === 'firewall' || d.type === 'lock') && ns.open) badges.push(['open', 'OPEN']);
     if (d.type === 'target' && st.hasData) badges.push(['data', 'COPIED']);
+    if (d.file) badges.push(st.files[id] ? ['data', 'FILE ✓'] : ['file', 'FILE']);
+    if (isSwitch(game, id)) badges.push(['points', 'FLIP ' + (st.switches[id] === 'b' ? 'B' : 'A')]);
     if (breach && d.type === 'entry' && E.isBurned(game, id)) badges.push(['trap', 'BURNED']);
     if (game.job.exits.indexOf(id) !== -1) {
       if (breach && id === st.exit) badges.unshift(['exit', 'EXIT']);
@@ -550,6 +590,8 @@
     return inner;
   }
 
+  function isSwitch(game, id) { return (game.job.switches || []).some(function (w) { return w.at === id; }); }
+
   function nodeAria(id) {
     var game = ui.game, st = game.state, d = def(id), ns = st.nodes[id];
     var parts = [ns.hidden ? 'Unknown node ' + d.label : d.label];
@@ -557,8 +599,10 @@
     if (ui.moves.indexOf(id) !== -1 && !ui.selected) parts.push('tap to move');
     if (ui.picks.indexOf(id) !== -1) parts.push('tap to target');
     if (d.cache && !ns.hidden && !st.taken[id]) parts.push('cache');
+    if (d.file && !st.files[id]) parts.push('side file');
+    if (isSwitch(game, id)) parts.push('switch, set ' + (st.switches[id] === 'b' ? 'B' : 'A'));
     var s = E.sentryAt(game, id);
-    if (s) parts.push('Sentry ' + s.id);
+    if (s) parts.push((s.tracer ? 'Tracer ' : 'Sentry ') + s.id);
     return parts.join(', ');
   }
 
@@ -597,6 +641,10 @@
       } else {
         base += '<line class="lk" x1="' + p.x + '" y1="' + p.y + '" x2="' + q.x + '" y2="' + q.y + '"' + attrs + '/>';
       }
+    });
+    if (!g.hex) E.deadLinks(game).forEach(function (l) {
+      var p = center(g, l[0]), q = center(g, l[1]);
+      base += '<line class="lk dead" x1="' + p.x + '" y1="' + p.y + '" x2="' + q.x + '" y2="' + q.y + '" stroke-dasharray="2 6" opacity="0.5"/>';
     });
     svg += '<g class="links" stroke="' + (g.hex ? '#34485E' : '#223040') + '" stroke-width="' + (g.hex ? 3 : 2) + '" fill="none">' + base + '</g>';
     svg += aiLinks;
@@ -665,9 +713,9 @@
         var off = g.N * 0.42;
         var x1 = p.x + dx / len * off, y1 = p.y + dy / len * off;
         var x2 = q.x - dx / len * (off + 4), y2 = q.y - dy / len * (off + 4);
-        var hunt = it.why === 'hunt', noise = it.why === 'noise', lure = it.why === 'decoy';
+        var hunt = it.why === 'hunt', noise = it.why === 'noise', lure = it.why === 'decoy', trailing = it.why === 'trail';
         out += g0 + '<path class="ipath' + (hunt ? ' hunt' : noise ? ' noise' : '') + '" d="M' + x1.toFixed(1) + ' ' + y1.toFixed(1) + ' L' + x2.toFixed(1) + ' ' + y2.toFixed(1) + '" stroke="#FF9F43" stroke-width="3"' +
-          (hunt ? '' : ' stroke-dasharray="' + (noise ? '3 4' : '6 5') + '"') + ' marker-end="url(#ah)" fill="none"/>';
+          (hunt ? '' : ' stroke-dasharray="' + (noise ? '3 4' : trailing ? '2 3' : '6 5') + '"') + ' marker-end="url(#ah)" fill="none"/>';
         out += '</g>';
       } else {
         var c = center(g, it.target);
@@ -741,7 +789,7 @@
       if (!ui.shown.s[s.id]) ui.shown.s[s.id] = s.pos;
       var el = fxb.querySelector('.tok-s[data-sentry="' + s.id + '"]');
       var fresh = false;
-      if (!el) { el = document.createElement('div'); el.className = 'tok tok-s' + (s.camera ? ' cam' : ''); el.setAttribute('data-sentry', s.id); el.innerHTML = '<span class="sl">' + s.id + '</span><span class="zz">zz</span><span class="why"></span>'; fxb.appendChild(el); fresh = true; }
+      if (!el) { el = document.createElement('div'); el.className = 'tok tok-s' + (s.camera ? ' cam' : '') + (s.tracer ? ' tracer' : ''); el.setAttribute('data-sentry', s.id); el.innerHTML = '<span class="sl">' + s.id + '</span><span class="zz">zz</span><span class="why"></span>'; fxb.appendChild(el); fresh = true; }
       if (!only || only === s.id) {
         var q = tokenPos('s', ui.shown.s[s.id]);
         el.style.transitionDuration = (fresh ? 0 : (ms || 0)) + 'ms';
@@ -757,7 +805,7 @@
         // What drives its next step rides on the token (never on the arrows).
         var it = s.intent || {};
         var why = st.status !== 'playing' || ui.preBreach ? '' : (it.type === 'wait' && it.why === 'rest') || it.why === 'retreat' ? 'rest'
-          : it.type === 'move' && it.why === 'hunt' ? 'HUNT' : it.why === 'noise' ? 'NOISE' : it.why === 'decoy' ? 'LURE' : s.camera ? 'CAM' : '';
+          : it.type === 'move' && it.why === 'hunt' ? 'HUNT' : it.why === 'noise' ? 'NOISE' : it.why === 'decoy' ? 'LURE' : s.camera ? 'CAM' : s.tracer ? 'TRAIL' : '';
         var w = el.querySelector('.why');
         w.textContent = why;
         w.className = 'why' + (why ? ' on' : '') + (why === 'rest' ? ' rest' : '');
@@ -1087,6 +1135,10 @@
     else if (d.type === 'target') bits.push(d.label + (st.hasData ? ': copied. Run for the exit.' : ': the target. Stand on it and Extract.'));
     else if (d.type === 'entry') bits.push(st.breach && E.isBurned(game, id) ? 'ENTRY: burned. You can’t leave this way.' : 'ENTRY: your way in. It burns when you Extract.');
     else bits.push(d.label + '.');
+    if (d.file) bits.push(st.files[id] ? 'Side file taken.' : 'Side file: Extract here for +$' + E.FILE_VALUE + '. Each file you hold adds +1 to the trace every BREACH turn.');
+    (game.job.switches || []).forEach(function (w) {
+      if (w.at === id) bits.push('Switch, set ' + (st.switches[id] === 'b' ? 'B' : 'A') + '. Step on it to flip. ' + (w.text ? 'Flipping: ' + w.text[st.switches[id] === 'b' ? 'a' : 'b'] : ''));
+    });
     if (d.cache && !ns.hidden && !st.taken[id]) bits.push(d.cache.kind === 'charge' ? 'Spare ' + E.PROGRAMS[d.cache.prog || 'brute'].name + ' charge here.' : 'Cache: +$100 (+$200 after Extract).');
     if (game.job.exits.indexOf(id) !== -1) {
       if (st.breach && id === st.exit) bits.push('The EXIT. Get here with the data.');
@@ -1095,10 +1147,11 @@
     }
     if (s) {
       var it = s.intent || {};
-      var next = it.type === 'move' ? 'next: ' + (it.why === 'hunt' ? 'hunts toward ' : it.why === 'retreat' ? 'backs off to ' : 'moves to ') + lbl(it.target)
+      var next = it.type === 'move' ? 'next: ' + (it.why === 'hunt' ? 'hunts toward ' : it.why === 'retreat' ? 'backs off to ' : it.why === 'trail' ? 'follows you to ' : 'moves to ') + lbl(it.target)
         : it.type === 'scan' ? 'next: scans ' + lbl(it.target)
           : it.type === 'stunned' ? 'stunned' : it.why === 'rest' ? 'catching its breath' : 'next: waits';
       if (s.camera) bits.push('Camera ' + s.id + ' never moves. It scans you if you end a turn on a node linked to it' + (it.type === 'wait' ? ' (resting this phase)' : '') + '.');
+      else if (s.tracer) bits.push('Tracer ' + s.id + ' walks your trail, one node a phase. ' + next + '.');
       else bits.push('Sentry ' + s.id + ' patrols ' + s.loop.map(function (n) { return lbl(n); }).join(' → ') + ', ' + next + '.');
     }
     if (id !== st.player && ui.moves.indexOf(id) === -1 && E.neighbors(game, st.player).indexOf(id) !== -1 && st.actions > 0) {
@@ -1186,6 +1239,18 @@
         t += 300;
       } else if (e.kind === 'open') {
         if (e.by === 'brute') { steps.push([t, function () { shardsFx(e.node); sfx('brute'); }]); t += 350; }
+      } else if (e.kind === 'flip') {
+        steps.push([t, function () { ripple(e.node, 'gold'); sfx('program'); }]);
+        t += 200;
+      } else if (e.kind === 'file') {
+        steps.push([t, function () { floatText(e.node, '+$' + e.value + ' FILE', 'gold', '.h-pay'); sfx('cache'); }]);
+        t += 300;
+      } else if (e.kind === 'freeze') {
+        steps.push([t, function () { (e.sentries || []).forEach(function (sid) { flashToken(sid, 'stunfx'); }); ripple(st.player, 'scan'); }]);
+        t += 250;
+      } else if (e.kind === 'tunnel') {
+        steps.push([t, function () { ripple(e.to); }]);
+        t += 200;
       } else if (e.kind === 'clue') {
         steps.push([t, function () { ripple(e.node, 'gold'); sfx('program'); }]);
         t += 200;
@@ -1225,7 +1290,7 @@
     };
     if (steps.length === 0 && !mv) { done(); return; }
     // Plain moves don't lock input: the slide is cosmetic.
-    if (!hasExtract && !ended && steps.length <= 1 && !(st.ai && st.ai.pending) && heatNow === heatBefore && !ev.some(function (e) { return e.kind === 'reveal' || e.kind === 'cache' || e.kind === 'open' || e.kind === 'noise' || e.kind === 'exitKnown'; })) {
+    if (!hasExtract && !ended && steps.length <= 1 && !(st.ai && st.ai.pending) && heatNow === heatBefore && !ev.some(function (e) { return e.kind === 'reveal' || e.kind === 'cache' || e.kind === 'open' || e.kind === 'noise' || e.kind === 'exitKnown' || e.kind === 'flip' || e.kind === 'file' || e.kind === 'freeze' || e.kind === 'tunnel'; })) {
       steps.forEach(function (s) { setTimeout(s[1], FAST ? 0 : s[0]); });
       ui.preBreach = false; ui.hudHeat = null;
       bark(ev);
@@ -1399,7 +1464,7 @@
       if (hit) ui.firstSeen = { sentry: hit.sentry, turn: before.turn, kind: hit.cause };
     }
     // Feed: what hit you, or a one-line summary of a quiet phase.
-    var hits = events.filter(function (e) { return (e.kind === 'heat') || e.kind === 'dodge' || e.kind === 'miss' || e.kind === 'stun' || e.kind === 'traceStart' || e.kind === 'lose' || e.kind === 'sentry'; });
+    var hits = events.filter(function (e) { return (e.kind === 'heat') || e.kind === 'dodge' || e.kind === 'miss' || e.kind === 'stun' || e.kind === 'traceStart' || e.kind === 'lose' || e.kind === 'sentry' || e.kind === 'alert'; });
     var summary = summarize(events);
     var gotHit = events.some(function (e) { return e.kind === 'heat' && (e.cause === 'scan' || e.cause === 'bump'); });
     var newFeed = gotHit ? hits.slice(-2)
@@ -1461,8 +1526,10 @@
     var up = events.filter(function (e) { return e.phase === 'upkeep'; });
     if (up.length) {
       up.forEach(function (e) {
-        if (e.kind === 'traceStart') steps.push([t, function () { banner('TRACE: +1 heat every turn', 'warmb', 1200); }]);
-        if (e.kind === 'heat') steps.push([t + 60, function () { floatText(st.player, '+1', 'heat', '.h-heat'); lightHeat(e.total); sfx('tick'); }]);
+        if (e.kind === 'traceStart') steps.push([t, function () { banner('TRACE: +' + E.traceRate(game) + ' heat every turn', 'warmb', 1200); }]);
+        if (e.kind === 'heat') steps.push([t + 60, function () { floatText(st.player, '+' + e.amount, 'heat', '.h-heat'); lightHeat(e.total); sfx('tick'); }]);
+        if (e.kind === 'alert') { steps.push([t, function () { banner('ALERT ' + e.level, 'warmb', 1200); sfx('honeypot'); }]); t += 300; }
+        if (e.kind === 'arrive') steps.push([t + 100, function () { ripple(e.node, 'scan'); flashToken(e.sentry, 'lured'); }]);
       });
       t += 200;
     }
@@ -1651,7 +1718,7 @@
     } else if (o === 'help') {
       h += '<div class="sheet" role="dialog" aria-label="How to play" data-act="">' +
         '<div class="title">How to play</div>' +
-        '<ol class="tips">' + (job.rules || []).map(function (t) { return '<li class="card"><span>' + t + '</span></li>'; }).join('') + '</ol>' +
+        '<ol class="tips">' + (job.rules || []).concat(v4Rules(job)).map(function (t) { return '<li class="card"><span>' + t + '</span></li>'; }).join('') + '</ol>' +
         programRows(job) +
         '<p>Heat: scanned +3, bumped +2, honeypot +4, Brute +1, Extract +1, and +1 every turn once the trace starts. Tap any node to see what it is.</p>' +
         '<button class="btn primary" data-act="close-overlay">' + (ui.screen === 'board' ? 'BACK TO THE JOB' : 'GOT IT') + '</button></div>';
@@ -1659,12 +1726,25 @@
     return h + '</div>';
   }
 
+  // Help lines for the v4 mechanics a job uses.
+  function v4Rules(job) {
+    var out = [];
+    if (job.alerts && job.alerts.length) out.push('<b>Alerts</b>: the <b>!</b> marks on the heat bar. When heat reaches one, the admin acts at the end of the turn: ' +
+      job.alerts.map(function (a) { return a.at + ' heat: ' + esc(a.text); }).join(' '));
+    if (job.sentries.some(function (s) { return s.tracer; })) out.push('A <b>Tracer</b> (dotted ring) logs in at ENTRY on turn ' + job.sentries.filter(function (s) { return s.tracer; })[0].arrives + ' and walks your exact trail, one node a phase. Doubling back walks you into it.');
+    if (job.switches && job.switches.length) out.push('<b>Switches</b>: step on one to flip which links are live, for you and for Sentries. Dark bridges are dead links.');
+    if (job.nodes.some(function (n) { return n.file; })) out.push('<b>Side files</b>: Extract on a FILE node for +$' + E.FILE_VALUE + '. Every file you hold adds +1 to each BREACH trace tick.');
+    if (job.loadout) out.push('<b>Loadout</b>: you picked ' + job.loadout.pick + ' programs in the briefing. <b>Tunnel</b> links you to a node 2 hops away (Sentries can use it too). <b>Freeze</b> stalls every Sentry and camera within 2 hops for a phase.');
+    return out;
+  }
+
   function programRows(job) {
     var h = '<div class="prog-list">';
+    var progs = job.loadout ? job.loadout.pool : job.programs;
     E.PROGRAM_ORDER.forEach(function (p) {
-      if (!job.programs[p]) return;
+      if (!progs[p]) return;
       var cost = E.programCost(p);
-      h += '<div class="card prog-row">' + icon(p, 18) + '<b>' + E.PROGRAMS[p].name + ' ×' + job.programs[p] + '</b><span>' + E.PROGRAMS[p].desc + (cost > 1 && E.PROGRAMS[p].desc.indexOf(cost + ' actions') === -1 ? ' (' + cost + ' actions)' : '') + '</span></div>';
+      h += '<div class="card prog-row">' + icon(p, 18) + '<b>' + E.PROGRAMS[p].name + ' ×' + progs[p] + '</b><span>' + E.PROGRAMS[p].desc + (cost > 1 && E.PROGRAMS[p].desc.indexOf(cost + ' actions') === -1 ? ' (' + cost + ' actions)' : '') + '</span></div>';
     });
     return h + '</div>';
   }

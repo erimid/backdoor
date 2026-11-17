@@ -47,11 +47,15 @@ test('every hex job is well formed: links only between touching cells, bigger th
 test('hex patrols step along links, and cameras sit still', () => {
   HEX.forEach(j => {
     const g = E.newGame(j);
-    j.sentries.forEach(s => {
+    // Every link the map has (a switch may have some of them dark).
+    const linked = (a, b) => j.links.some(l => (l[0] === a && l[1] === b) || (l[0] === b && l[1] === a));
+    const extra = (j.alerts || []).filter(a => a.kind === 'spawn').map(a => a.sentry);
+    j.sentries.concat(extra).forEach(s => {
       if (s.camera) { assert.deepEqual(s.patrol, [s.start]); return; }
+      if (s.tracer) return; // a Tracer walks your trail, not a loop
       s.patrol.forEach((p, i) => {
         const q = s.patrol[(i + 1) % s.patrol.length];
-        assert.ok(E.neighbors(g, p).indexOf(q) !== -1, j.id + ' Sentry ' + s.id + ': ' + p + ' -> ' + q);
+        assert.ok(linked(p, q) || E.neighbors(g, p).indexOf(q) !== -1, j.id + ' Sentry ' + s.id + ': ' + p + ' -> ' + q);
       });
     });
   });

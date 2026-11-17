@@ -27,6 +27,10 @@
     decoy: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/>',
     worm: '<path d="M3 14c2-4 4-4 6 0s4 4 6 0 4-4 6 0"/>',
     brute: '<path d="M14 4l6 6-3 3-6-6zM11 7l-8 8 6 6 8-8"/>',
+    tunnel: '<path d="M3 20v-6a9 9 0 0 1 18 0v6"/><path d="M8 20v-5a4 4 0 0 1 8 0v5"/>',
+    freeze: '<path d="M12 2v20M4.9 6.5l14.2 11M19.1 6.5L4.9 17.5"/><path d="M9.5 3.5L12 6l2.5-2.5M9.5 20.5L12 18l2.5 2.5"/>',
+    file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
+    points: '<path d="M4 20V4M4 12l8-8M4 12l8 8M14 4h6M14 20h6"/>',
     extract: '<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',
     star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>'
   };

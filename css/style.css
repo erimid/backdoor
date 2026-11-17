@@ -442,3 +442,20 @@ body.rm .spr.shard, body.rm .spr.trail, body.rm .spr.scanline, body.rm .spr.swee
   .scan-ring, .shake, .shake.shake-sm, .node.flip, .segs i.pop, .h-pay.pop b, .sheet { animation: none !important; }
 }
 .board.hex .node .burn-x { position: absolute; width: 60%; height: 60%; inset: 20%; }
+
+/* ---------- v4: alerts, Tracer, switches, side files, loadout ---------- */
+.segs i.al { position: relative; outline: 1.5px solid #FF4D6D; outline-offset: 1px; }
+.segs i.al.fired { outline-color: #6B2A36; }
+.segs i.al::after { content: '!'; position: absolute; left: 50%; top: -11px; transform: translateX(-50%); font-size: 8px; font-weight: 800; color: #FF4D6D; line-height: 1; }
+.segs i.al.fired::after { color: #6B2A36; }
+.chip.alert { color: #FF4D6D; border-color: #5A1F2B; background: #1A0B0F; }
+.chip.tracer { color: var(--threat); border-color: #5A3A12; border-style: dashed; }
+.chip.file { color: var(--gold); border-color: #4A3C12; }
+.tok-s.tracer { background: var(--ground); color: var(--threat); border: 2px dotted var(--threat); }
+.badge.file { background: #1A1609; color: var(--gold); border: 1px solid #8A7230; }
+.badge.points { background: #10202E; color: #8FD3FF; border: 1px solid #2E5A7A; }
+.node.file:not(.got) .lbl { color: var(--gold); }
+.node.switchnode .hx-r { stroke: #8FD3FF; stroke-dasharray: 3 3; }
+.board .bridges .bridge.dead rect { fill: #1A2433; opacity: 0.9; }
+.board .bridges .bridge-far.tunnel { stroke: var(--you); }
+.btn.extract.file { font-size: 12px; }

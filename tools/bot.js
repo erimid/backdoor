@@ -31,7 +31,7 @@ try { VARIANTS = require('../js/variants.js'); } catch (e) { VARIANTS = null; }
 
 // The spec's weights. `sentry` is 0: the reference bot treats a node with a
 // Sentry on it like any other node. (--sentry-cost N, for comparison only.)
-var W = { brute: 2, honey: 3, heat: 3, det: 2, cash: 0.05, sentry: 0, noise: 15 };
+var W = { brute: 2, honey: 3, heat: 3, det: 2, cash: 0.05, sentry: 0, noise: 15, file: 4 };
 
 function mulberry32(a) {
   return function () {
@@ -85,7 +85,10 @@ function score(g) {
   if (st.status === 'won') return 1e6 - st.heat;
   if (st.status === 'lost') return -1e6;
   var d = dist(g); if (d === Infinity) d = 30;
-  var s = -10 * d - W.heat * st.heat - (st.detected ? W.det : 0) + W.cash * st.cash;
+  var s = -10 * d - W.heat * st.heat - (st.detected ? W.det : 0) + W.cash * (st.cash + (st.fileCash || 0));
+  // v4: a side file speeds the trace up by 1 a turn. A first-timer reads the
+  // label and counts it as about 4 heat (the length of a typical getaway).
+  s -= W.heat * W.file * E.fileCount(g);
   Object.keys(st.charges).forEach(function (k) { s += 0.5 * st.charges[k]; });
   return s;
 }
@@ -101,7 +104,7 @@ function plans(g, answer) {
       var h = B.copy(g); var t = answer(st.ai.pending); E.answerAI(h, t);
       rec(h, seq.concat(t ? 'trust' : 'refuse')); return;
     }
-    var k = JSON.stringify([st.player, st.actions, st.nodes, st.sentries, st.charges, st.spoof, st.heat, st.hasData, st.taken, st.cash, st.exitKnown]);
+    var k = JSON.stringify([st.player, st.actions, st.nodes, st.sentries, st.charges, st.spoof, st.heat, st.hasData, st.taken, st.cash, st.exitKnown, E.searchKey(st)]);
     if (seen.has(k)) return; seen.add(k);
     var e = B.copy(g); E.endTurn(e); out.push({ seq: seq.concat('end'), game: e });
     B.actionLabels(g).forEach(function (a) {
