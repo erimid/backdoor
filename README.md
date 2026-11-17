@@ -174,7 +174,21 @@ state (`E.searchKey`).
 
 ### v4 results
 
-V4_RESULTS
+`npm run validate -- --jobs jobNN` (one job per run) and the spec bot
+(100 seeds, canonical night, refusing every offer; v3 numbers in brackets):
+
+| Job | Nights shipped | PAR | Canonical best line | Sighted bot (median) | Spec bot win | ★2 | Turns on start node |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 11 | 61 / 64 | $1150 | 3★ $1220, turn 7 | 71% | 64% (100%) | 2% | 11% |
+| 12 | 24 / 24 | $1350 | 3★ $1530, turn 8 | 84% | 70% (95%) | 10% | 14% |
+| 13 | 8 / 16 | $1000 | 3★ $1270, turn 7 | 92% (trust 1: 99%) | 67% (trust 1: 71%) (85%) | 66% | 23% |
+| 14 | 20 / 24 | $1600 | 3★ $1660, turn 7 | 62% | 30% (57%) | 1% | 15% |
+| 15 | 24 / 24 | $1650 | 3★ $1930, turn 9 | 84% | 7% (7%) | 7% | 17% |
+
+Open issues (found in this pass, not fixed): Job 13 ships only 8 of 16
+nights and its start-node turns are 23%; Job 14's best lines leave 21% of
+action slots unused (target 15%); Job 11's spec-bot 3★ is 2% (target 5%);
+Job 15 is still a 7% spec-bot finale.
 
 ## v3 changes
 
