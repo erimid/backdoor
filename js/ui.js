@@ -327,7 +327,7 @@
     if (st.status !== 'playing') return '';
     return st.sentries.map(function (s) {
       var it = s.intent || {};
-      if (it.type === 'move') return s.id + (it.target === st.player ? ' bumps you' : ' → ' + lbl(it.target));
+      if (it.type === 'move') return s.id + (it.target === st.player ? ' bumps you' : (it.why === 'retreat' ? ' backs off → ' : ' → ') + lbl(it.target));
       if (it.type === 'scan') return s.id + ' scans ' + (it.target === st.player ? 'you' : lbl(it.target));
       if (it.type === 'stunned') return s.id + ' stunned';
       if (it.why === 'rest') return s.id + ' rests';
@@ -633,7 +633,7 @@
         el.classList.toggle('stunned', s.stun > 0 || (s.intent && s.intent.type === 'stunned'));
         // What drives its next step rides on the token (never on the arrows).
         var it = s.intent || {};
-        var why = st.status !== 'playing' || ui.preBreach ? '' : it.type === 'wait' && it.why === 'rest' ? 'rest'
+        var why = st.status !== 'playing' || ui.preBreach ? '' : (it.type === 'wait' && it.why === 'rest') || it.why === 'retreat' ? 'rest'
           : it.type === 'move' && it.why === 'hunt' ? 'HUNT' : it.why === 'noise' ? 'NOISE' : it.why === 'decoy' ? 'LURE' : '';
         var w = el.querySelector('.why');
         w.textContent = why;
@@ -883,7 +883,7 @@
         var d = bfsDist(st.player, function (n) { return E.neighbors(game, n); });
         var hid = job.nodes.filter(function (n) { return st.nodes[n.id].hidden && d[n.id] !== undefined && d[n.id] <= 2; })[0];
         if (hid) anchor = st.charges.sniff ? { sel: '[data-anchor="prog-sniff"]' } : { node: hid.id };
-      } else if (t.when === 'banked' && st.banked) anchor = { sel: '[data-anchor="pips"]' };
+      } else if (t.when === 'banked' && st.banked && st.actions === E.ACTIONS_MAX) anchor = { sel: '[data-anchor="pips"]' };
       else if (t.when === 'onTarget' && E.canExtract(game)) anchor = { sel: '[data-anchor="extract"]' };
       else if (t.when === 'breach' && st.breach) anchor = { node: st.exit };
       if (!anchor) continue;
@@ -972,7 +972,7 @@
     }
     if (s) {
       var it = s.intent || {};
-      var next = it.type === 'move' ? 'next: ' + (it.why === 'hunt' ? 'hunts toward ' : 'moves to ') + lbl(it.target)
+      var next = it.type === 'move' ? 'next: ' + (it.why === 'hunt' ? 'hunts toward ' : it.why === 'retreat' ? 'backs off to ' : 'moves to ') + lbl(it.target)
         : it.type === 'scan' ? 'next: scans ' + lbl(it.target)
           : it.type === 'stunned' ? 'stunned' : it.why === 'rest' ? 'catching its breath' : 'next: waits';
       bits.push('Sentry ' + s.id + ' patrols ' + s.loop.map(function (n) { return lbl(n); }).join(' → ') + ', ' + next + '.');
@@ -1073,10 +1073,12 @@
         t += 400;
       } else if (e.kind === 'extract') {
         steps.push([t, function () { extractFx(e.node); }]);
-        t += 1100;
+        // DATA ACQUIRED lands at 700 ms; when the freeze offer follows, move on
+        // as soon as it does so the hands-off stretch stays short.
+        t += st.ai && st.ai.pending ? 800 : 1100;
       } else if (e.kind === 'breach') {
         steps.push([t, function () { breachFx(e); }]);
-        t += st.ai && st.ai.pending ? 400 : 650; // an offer follows: don't hold as long
+        t += st.ai && st.ai.pending ? 250 : 650; // an offer follows: don't hold as long
       } else if (e.kind === 'stun') {
         steps.push([t, function () { flashToken(e.sentry, 'stunfx'); }]);
         t += 60;
@@ -1460,16 +1462,20 @@
     if (!game.state.ai || !game.state.ai.pending) return;
     hideTip();
     var o = offerDef();
-    ui.offerTyped = FAST ? o.voice.length : 0;
-    if (FAST) { ui.overlay = 'ai'; render(); return; }
+    // A tap that skipped the beat before this one (Extract) skips the intro too.
+    var instant = FAST || skipping;
+    ui.offerTyped = instant ? o.voice.length : 0;
+    if (instant) { document.body.classList.remove('glitch'); ui.overlay = 'ai'; render(); return; }
     var steps = [];
-    // The freeze offer follows Extract's own long beat (download, DATA
-    // ACQUIRED, BREACH), so its intro is clipped: shorter banner hold, glitch
-    // and typing, keeping the hands-off stretch near 3.5 s instead of 5.
+    // The freeze offer follows Extract's own beat (download, DATA ACQUIRED,
+    // BREACH), so its intro is clipped: no banner hold (the BREACH banner
+    // keeps playing behind the sheet), a shorter glitch and faster typing.
+    // Extract to the offer buttons takes about 2.2 s hands-off; any tap skips
+    // straight to the end of whichever beat is playing.
     var quick = o.id === 'freeze';
-    var GL = quick ? 350 : 600, CH = quick ? 18 : 28;
+    var GL = quick ? 250 : 600, CH = quick ? 12 : 28;
     // Let a BREACH banner land first.
-    var d0 = fx.querySelector('.banner') ? (quick ? 250 : 650) : 0;
+    var d0 = fx.querySelector('.banner') && !quick ? 650 : 0;
     // Glitch (600 ms, 350 when quick): the violet node pulses, links flicker violet, RGB split.
     steps.push([d0, function () {
       document.body.classList.add('glitch');
@@ -1541,7 +1547,8 @@
 
   // ---------- event wiring ----------
 
-  var swallowUntil = 0;
+  var swallowUntil = 0; // clicks right after a tap that skipped a sequence
+  var decisionGuardUntil = 0; // UNKNOWN's Trust/Refuse after a skip reached them
   var swallowTap = false; // the click that ends a tap on a tip bubble
   document.addEventListener('click', function (e) {
     if (!swallowTap) return;
@@ -1567,18 +1574,29 @@
     }
     hideTip();
     if (hadTip && ui.helloLater) { var h = ui.helloLater; ui.helloLater = null; setTimeout(h, 900); }
+    var now = Date.now();
     if (seq) {
       skipping = true;
       skipSeq();
       skipping = false;
-      swallowUntil = Date.now() + 450;
+      swallowUntil = now + 450;
+      // A skip that lands on UNKNOWN's buttons locks them briefly, so the
+      // rest of a mash can't answer an irreversible offer by accident.
+      if (ui.overlay === 'ai') decisionGuardUntil = now + 600;
+    } else if (now < swallowUntil || now < decisionGuardUntil) {
+      // Still mashing: every tap inside the window is eaten and keeps it
+      // open a little longer, so input resumes once the taps stop.
+      if (now < swallowUntil) swallowUntil = Math.max(swallowUntil, now + 300);
+      if (now < decisionGuardUntil) decisionGuardUntil = Math.max(decisionGuardUntil, now + 400);
     }
   }, true);
 
   app.addEventListener('click', function (e) {
     var el = e.target.closest('[data-act]');
     if (!el) return;
-    if (Date.now() < swallowUntil) { swallowUntil = 0; e.stopPropagation(); return; }
+    if (Date.now() < swallowUntil) { e.stopPropagation(); return; }
+    var act0 = el.getAttribute('data-act');
+    if ((act0 === 'ai-trust' || act0 === 'ai-refuse') && Date.now() < decisionGuardUntil) { e.stopPropagation(); return; }
     if (ui.busy) return;
     var act = el.getAttribute('data-act');
     if (act === '') { e.stopPropagation(); return; }

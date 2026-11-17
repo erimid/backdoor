@@ -242,6 +242,84 @@ async function juice() {
     check('no console errors (reduced motion)', errors.length === 0, errors.join(' | '));
     await ctx.close();
   }
+  // Coaching tips (Job 01, tips not yet seen): the Banked tip only shows on a
+  // 3-action turn before you spend any, the Brute tip only when Brute is
+  // affordable (2+ actions), and no tip ever covers the warning line.
+  {
+    const seqs = ['tap >C end tap >G tap >V tap end tap', '>A end tap >B tap >Y tap end', 'tap >A tap >B tap end tap'];
+    const bad = []; const seen = { banked: 0, brute: 0 };
+    for (const seq of seqs) {
+      const { ctx, page, errors } = await fresh();
+      await page.evaluate(() => { localStorage.removeItem('backdoor.tips'); window.__backdoor.startJob(0, 0); });
+      await page.waitForTimeout(400);
+      for (const m of seq.split(' ')) {
+        if (m === 'tap') await page.mouse.click(5, 5);
+        else await act(page, m);
+        await page.waitForTimeout(400);
+        const s = await page.evaluate(() => {
+          const g = window.__backdoor.game(); const t = document.querySelector('.tipb'); const w = document.querySelector('.warn:not(.empty)');
+          const a = t && t.getBoundingClientRect(), b = w && w.getBoundingClientRect();
+          return { tip: t ? t.textContent : '', act: g.state.actions, banked: g.state.banked,
+            cover: !!(a && b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) };
+        });
+        if (/Banked:/.test(s.tip)) { seen.banked++; if (!(s.banked && s.act === 3)) bad.push(seq + ' @' + m + ': Banked tip with ' + s.act + ' actions'); }
+        if (/Brute<\/b>|Brute takes/.test(s.tip)) { seen.brute++; if (s.act < 2) bad.push(seq + ' @' + m + ': Brute tip with ' + s.act + ' actions'); }
+        if (s.cover) bad.push(seq + ' @' + m + ': tip covers the warning');
+      }
+      if (errors.length) bad.push('console: ' + errors.join(' | '));
+      await ctx.close();
+    }
+    check('tips: Banked only on a fresh 3-action turn, Brute only with 2+ actions, never over the warning', !bad.length && seen.banked && seen.brute,
+      bad.length ? bad.join('; ') : 'banked seen ' + seen.banked + ', brute seen ' + seen.brute);
+  }
+  // Extract to the freeze offer's buttons (Job 02): short hands-off, and one
+  // tap skips straight to the buttons (without pressing one).
+  {
+    const { ctx, page, errors } = await fresh({ job: 1 });
+    const toVault = () => page.evaluate(() => {
+      const g = window.__backdoor.game(); g.state.player = 'V'; g.state.sentries[0].pos = 'H'; g.state.sentries[1].pos = 'C';
+      window.BackdoorEngine.replan(g); window.__backdoor.render();
+    });
+    await toVault(); await page.waitForTimeout(200);
+    let t0 = Date.now();
+    await page.click('[data-act="extract"]');
+    await page.waitForSelector('[data-act="ai-trust"]', { timeout: 8000 });
+    const handsOff = Date.now() - t0;
+    // No deal taken yet, so the terms must not say "another".
+    const terms = await page.$eval('.terms', e => e.textContent);
+    check('freeze offer with no earlier deal: "takes 25%", not "another"', /takes 25%/.test(terms) && !/another/.test(terms), terms);
+    await page.click('[data-act="ai-refuse"]'); await idle(page);
+    await page.evaluate(() => window.__backdoor.startJob(1, 0)); await page.waitForTimeout(250);
+    await toVault(); await page.waitForTimeout(200);
+    t0 = Date.now();
+    await page.click('[data-act="extract"]');
+    await page.waitForTimeout(150);
+    await page.mouse.click(195, 300);
+    await page.waitForSelector('[data-act="ai-trust"]', { timeout: 8000 });
+    const tapped = Date.now() - t0;
+    const pending = await page.evaluate(() => window.__backdoor.game().state.ai.pending);
+    check('Extract to the freeze offer buttons: <= 2.8 s hands-off, one tap skips to them', handsOff <= 2800 && tapped <= 800 && pending === 'freeze',
+      'hands-off ' + handsOff + ' ms, one tap ' + tapped + ' ms, still pending: ' + pending);
+    // Mashing through Extract must not answer the offer: three more taps
+    // 250 ms apart land on the Trust button's spot and are all eaten, then a
+    // deliberate tap after a pause answers it.
+    await page.click('[data-act="ai-refuse"]'); await idle(page);
+    await page.evaluate(() => window.__backdoor.startJob(1, 0)); await page.waitForTimeout(250);
+    await toVault(); await page.waitForTimeout(200);
+    await page.click('[data-act="extract"]');
+    await page.waitForTimeout(300);
+    const tb = await (async () => { await page.mouse.click(195, 300); await page.waitForSelector('[data-act="ai-trust"]', { timeout: 8000 }); return page.$eval('[data-act="ai-trust"]', e => { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }); })();
+    for (let i = 0; i < 3; i++) { await page.waitForTimeout(250); await page.mouse.click(tb.x, tb.y); }
+    await page.waitForTimeout(150);
+    const mashed = await page.evaluate(() => window.__backdoor.game().state.ai.pending);
+    await page.waitForTimeout(500);
+    await page.mouse.click(tb.x, tb.y); await page.waitForTimeout(200);
+    const answered = await page.evaluate(() => window.__backdoor.game().state.ai.answers.freeze);
+    check('mashing through Extract never answers the freeze offer; a deliberate tap does', mashed === 'freeze' && answered === 'trusted',
+      'after mash pending: ' + mashed + ', after a deliberate tap: ' + answered);
+    check('no console errors (freeze offer)', errors.length === 0, errors.join(' | '));
+    await ctx.close();
+  }
   await browser.close();
   const bad = results.filter(r => !r.ok).length;
   console.log((results.length - bad) + '/' + results.length + ' juice checks passed');
