@@ -124,14 +124,52 @@ b { color: var(--text); }
 /* ---------- board ---------- */
 .board { position: relative; flex-shrink: 0; border-radius: 20px; background-color: var(--board); background-image: radial-gradient(#1A2230 1px, transparent 1px); background-size: 18px 18px; border: 1px solid #18202A; transition: box-shadow 0.4s, border-color 0.4s; }
 .board.breach { border-color: rgba(255,159,67,0.55); box-shadow: 0 0 0 1px rgba(255,159,67,0.25), 0 0 26px rgba(255,159,67,0.28), inset 0 0 22px rgba(255,159,67,0.12); }
-.board.hex .node { border-radius: 50%; gap: 2px; }
-.board.hex .node .lbl { font-size: 8px; letter-spacing: -0.05em; }
-.board.hex .node svg { width: 16px; height: 16px; }
-.board.hex .node .cache-chip { top: 4px; left: 50%; margin-left: -5.5px; }
-.board.hex .node.exitc::before, .board.hex .node.exit::before, .board.hex .node.valid::after { border-radius: 50%; }
-.board.hex .node .badge { font-size: 7.5px; }
-.board .hexcells polygon { fill: none; stroke: #16202B; stroke-width: 1; }
-.board .hexcells polygon.on { fill: rgba(61,220,255,0.025); stroke: #1E2A38; }
+.board .hexcells polygon { fill: none; stroke: #141C26; stroke-width: 1; }
+.board svg.layer.top { z-index: 2; }
+/* Hex tiles: the button is clipped to a hexagon; its look is the inline svg. */
+.board.hex .node { --hf: #111821; --hs: #2E3B4C; --hw: 3; --hd: none; --rr: transparent; --rd: none; --rw: 0;
+  border: 0 !important; border-radius: 0; background: transparent !important; box-shadow: none !important; gap: 2px;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
+.board.hex .node::before, .board.hex .node::after { display: none; }
+.board.hex .node > * { position: relative; }
+.board.hex .node > svg.hx { position: absolute; inset: 0; width: 100%; height: 100%; }
+.board.hex .node .hx-f { fill: var(--hf); stroke: var(--hs); stroke-width: var(--hw); stroke-dasharray: var(--hd); vector-effect: non-scaling-stroke; transition: fill 0.2s, stroke 0.2s; }
+.board.hex .node .hx-r { fill: none; stroke: var(--rr); stroke-width: var(--rw); stroke-dasharray: var(--rd); vector-effect: non-scaling-stroke; }
+.board.hex .node .lbl { font-size: 8.5px; letter-spacing: -0.04em; }
+.board.hex .node .icon, .board.hex .node > svg:not(.hx) { width: 17px; height: 17px; }
+.board.hex .node .cache-chip { position: absolute; top: 9px; left: 50%; margin-left: -5.5px; }
+.board.hex .node .badge { position: relative; left: auto; right: auto; bottom: auto; top: auto; font-size: 7px; padding: 0 3px; margin: 1px auto 0; line-height: 1.3; }
+.board.hex .node .badge.b2 { order: -1; top: auto; margin: 0 auto 1px; }
+.board.hex .node .cache-chip ~ .badge.b2 { display: none; }
+/* Colour key (hex boards): type first, then what's on it. */
+.board.hex .node.entry { --hf: #0D2029; --hs: #2C7487; }
+.board.hex .node.target { --hf: #3A2C06; --hs: var(--gold); --hw: 3.5; color: #FFE39A; }
+.board.hex .node.target.copied { --hd: 5 4; --hf: #1F1906; }
+.board.hex .node.barrier { --hf: #3A0E1C; --hs: #FF4D6D; --hw: 3; color: #FF9BAE; }
+.board.hex .node.barrier.open { --hf: #141B24; --hs: #3DDC84; --hd: 6 4; color: #8FF0B8; }
+.board.hex .node.loot { --hf: #0E2A1C; --hs: #2FCB78; color: #8FF0B8; }
+.board.hex .node.hidden { --hf: #0B1017; --hs: #3A4757; --hd: 4 4; color: var(--dim); }
+.board.hex .node.trap { --hf: #33190A; --hs: var(--threat); color: var(--threat-hi); }
+.board.hex .node.ai { --hf: #1F1433; --hs: var(--ai); --hd: 5 4; color: var(--ai-hi); }
+.board.hex .node.ai.trusted { --hd: none; --hf: #2B1C48; }
+.board.hex .node.watched { --rr: var(--threat); --rw: 2; --rd: 2 4; }
+.board.hex .node.watched:not(.you) { --hf: #2A1A0E; }
+.board.hex .node.occ:not(.you) { --hf: #3C1E08; --hs: var(--threat); --hw: 3.5; color: var(--threat-hi); }
+.board.hex .node.exitc { --rr: rgba(255,209,102,0.8); --rw: 2; --rd: 5 4; }
+.board.hex .node.exit { --rr: var(--gold); --rw: 2.5; --rd: none; }
+.board.hex .node.exit.live { --hf: var(--gold); --hs: var(--gold); color: #241A02; }
+.board.hex .node.you { --hf: var(--you); --hs: var(--you-hi); --hw: 3; color: var(--you-ink); }
+.board.hex .node.valid { --rr: var(--you); --rw: 3; --rd: none; color: var(--you-hi); }
+.board.hex .node.valid .hx-r { animation: breathe 1.4s ease-in-out infinite alternate; }
+.board.hex .node.pick { --rr: var(--you); --rw: 3; --rd: 5 4; color: var(--you-hi); }
+.board.hex .node.burned { --hf: #120C08; --hs: #5A3418; color: #6E5040; }
+.board .bridges .bridge rect { fill: #4B6580; }
+.board .bridges .bridge rect.core { fill: #8FB3D1; opacity: 0.55; }
+.board .bridges .bridge.walked rect { fill: var(--you); }
+.board .bridges .bridge.walked rect.core { fill: #E8FBFF; opacity: 0.9; }
+.board .bridges .bridge.ai rect { fill: #7B5BC0; }
+.board .bridges .bridge-far { fill: none; stroke: #B48CFF; stroke-width: 2.5; stroke-dasharray: 4 5; stroke-linecap: round; }
+.board .bridges .bridge.cyanflash rect { fill: var(--you); }
 .board svg.layer { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
 .board line.walked.draw-in { stroke-dasharray: var(--len) var(--len); stroke-dashoffset: var(--len); animation: drawin 0.2s ease-out forwards; }
 @keyframes drawin { to { stroke-dashoffset: 0; } }
@@ -403,3 +441,4 @@ body.rm .spr.shard, body.rm .spr.trail, body.rm .spr.scanline, body.rm .spr.swee
 @media (prefers-reduced-motion: reduce) {
   .scan-ring, .shake, .shake.shake-sm, .node.flip, .segs i.pop, .h-pay.pop b, .sheet { animation: none !important; }
 }
+.board.hex .node .burn-x { position: absolute; width: 60%; height: 60%; inset: 20%; }
