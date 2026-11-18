@@ -676,7 +676,7 @@
     }).join('') + '</div>';
     h += '<p class="note">Copy the log and paste it into the project thread.</p>';
     var framed = false; try { framed = root.self !== root.top; } catch (e) { framed = true; }
-    h += '<div class="m-row2"><button class="btn primary" data-act="log-copy">COPY</button>' + (framed ? '' : '<button class="btn" data-act="log-csv">Download CSV</button>') + '</div>';
+    h += '<div class="m-row2"><button class="btn primary" data-act="log-copy">COPY</button>' + (framed && !artDownloads ? '' : '<button class="btn" data-act="log-csv">Download CSV</button>') + '</div>';
     h += '<div class="m-row2"><button class="btn ghost' + (confirmClear ? ' m-danger' : '') + '" data-act="log-clear">' +
       (confirmClear ? 'Tap again to delete ' + store.runs.length + ' runs' : 'Clear log') + '</button>' +
       '<button class="btn" data-act="back">Back</button></div>';
@@ -726,7 +726,31 @@
     try { d.execCommand('copy'); } catch (e) { /* ignore */ }
     ta.remove();
   }
+  // In the Claude artifact viewer the page is framed, so an anchor download is
+  // blocked; the viewer's downloads capability saves the file instead.
+  var artDownloads = null;
+  function initArtDownloads() {
+    try {
+      var c = root.claude;
+      if (!c || typeof c.use !== 'function') return;
+      Promise.resolve(c.use('downloads')).then(function (dl) {
+        if (!dl) return;
+        artDownloads = dl;
+        // If the log screen is already up, add the button in place.
+        var copyBtn = root.document && root.document.querySelector('[data-act="log-copy"]');
+        if (copyBtn && !root.document.querySelector('[data-act="log-csv"]')) {
+          var b = root.document.createElement('button');
+          b.className = 'btn'; b.setAttribute('data-act', 'log-csv'); b.textContent = 'Download CSV';
+          copyBtn.parentNode.appendChild(b);
+        }
+      }, function () { /* no downloads here */ });
+    } catch (e) { /* no downloads here */ }
+  }
   function download(name, text) {
+    if (artDownloads) {
+      Promise.resolve(artDownloads.save({ filename: name, data: text })).catch(function () { /* declined or unavailable */ });
+      return;
+    }
     var d = root.document;
     var a = d.createElement('a');
     a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));
@@ -807,6 +831,7 @@
     iconFn = opts.icon || (root.BackdoorIcons && root.BackdoorIcons.icon) || null;
     sfx = opts.sfx || null;
     store = load();
+    initArtDownloads();
     // Record the first scan/bump (sentry + turn) on the game object, for the
     // "Seen by Sentry B on turn 4" star reason. Doesn't touch engine state.
     if (E && E.endTurn && !E.endTurn.__metaWrapped) {

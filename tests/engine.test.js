@@ -1100,9 +1100,7 @@ test('no softlock (fuzz): under this play policy, waiting frees a move within 3 
             E.endTurn(h); phases++;
           }
           checked++; worst = Math.max(worst, phases);
-          // 4 when a blocker was Worm-stunned: two stunned phases, one scan,
-          // then it steps off (Job 08 can Worm ENTRY itself).
-          assert.ok(phases <= 4, `${job.id}: boxed in for ${phases}+ phases at ${g.state.player}`);
+          assert.ok(phases <= 3, `${job.id}: boxed in for ${phases}+ phases at ${g.state.player}`);
           continue;
         }
         B.apply(g, acts[rnd(acts.length)]);

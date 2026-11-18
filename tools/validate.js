@@ -243,6 +243,10 @@ async function validateJob(P, jobIndex) {
     par = Math.floor((canon.best.payout - 50) / 50) * 50;
     parNote += ', lowered to $' + par + ' so canonical ($' + canon.best.payout + ') clears it by $50';
   }
+  // `payout.parCut` lowers PAR by a fixed amount on jobs where the 25th
+  // percentile of perfect lines left ★2 out of a typical player's reach.
+  var cut = (job.payout && job.payout.parCut) || 0;
+  if (cut) { par = Math.max(50, par - cut); parNote += ', minus the job\'s parCut $' + cut + ' -> $' + par; }
   console.log('  ' + parNote);
 
   // (a) 3-star line at par. The best-payout line already is one if it meets

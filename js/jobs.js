@@ -156,7 +156,7 @@
       links: [
         ['E', 'R'], ['R', 'P'], ['P', 'Q'], ['Q', 'T'], ['T', 'H'], ['H', 'S'],
         ['S', 'V'], ['E', 'C'], ['C', 'M'], ['M', 'A'], ['A', 'K'], ['K', 'O'],
-        ['O', 'V'], ['R', 'W'], ['W', 'F'], ['F', 'S'], ['W', 'U'], ['M', 'W'],
+        ['O', 'V'], ['R', 'W'], ['W', 'F'], ['F', 'S'], ['W', 'U'], ['M', 'W'], ['K', 'S'],
         // v3: CAM-03–WIFI and ADMIN-PC–SWITCH give the refused routes a second
         // way round each Sentry, so refusing UNKNOWN isn't the slow road.
         ['C', 'W'], ['O', 'S']
@@ -258,7 +258,7 @@
       exits: ['A', 'R'],
       caches: { D: { kind: 'cash' } },
       bag: { nodes: ['P', 'H'], contents: ['cash', 'honeypot'], canonical: { P: 'cash', H: 'honeypot' } },
-      payout: { base: 500, par: 500 },
+      payout: { base: 500, par: 500, parCut: 100 },
       bonus: { id: 'greedy', short: 'Greedy', text: 'Greedy: take every $ cache' },
       tips: [
         { when: 'start', html: '<b>Cameras</b> (square tokens) never move. End a turn next to one and it scans you. Passing by is fine.' },
@@ -410,7 +410,7 @@
       exits: ['M', 'Q'],
       caches: { M: { kind: 'cash' } },
       bag: { nodes: ['Z', 'L'], contents: ['cash', 'honeypot'], canonical: { Z: 'cash', L: 'honeypot' } },
-      payout: { base: 600, par: 600 },
+      payout: { base: 600, par: 600, parCut: 200 },
       bonus: { id: 'quiet', short: 'Quiet', text: 'Quiet: never use Brute' },
       tips: [
         { when: 'start', html: '<b>Decoy</b> pulls the nearest Sentry to a node next to you. Use it to clear a path without Brute.' },
@@ -561,6 +561,7 @@
       goal: 'Walk out with the reserve keys',
       tagline: 'You start hot, the door is locked, and they’re waiting.',
       turnLimit: 13,
+      beamK: [60, 150, 400],
       startHeat: 2,
       programs: { sniff: 2, spoof: 2, decoy: 1, worm: 1, brute: 1 },
       nodes: [
@@ -603,7 +604,7 @@
       exits: ['C', 'B', 'L'],
       caches: { H: { kind: 'cash' }, L: { kind: 'cash' } },
       bag: { nodes: ['Q', 'T'], contents: ['cash', 'honeypot'], canonical: { Q: 'cash', T: 'honeypot' } },
-      payout: { base: 1500, par: 1500 },
+      payout: { base: 1500, par: 1500, parCut: 100 },
       bonus: { id: 'speed', short: 'Fast', text: 'Fast: get out by turn 11', turn: 11 },
       tips: [
         { when: 'start', html: 'You start with <b>2 heat</b>. A camera, two Sentries, a locked vault door and three possible exits. Plan the way out before you go in.' },
@@ -621,8 +622,9 @@
       name: 'Nimbus Data Center',
       goal: 'Image the mainframe',
       tagline: 'Three cameras, one guard, three ways out. Stay cool.',
-      turnLimit: 11,
-      programs: { sniff: 1, spoof: 2, decoy: 1, brute: 1 },
+      turnLimit: 12,
+      beamK: [60, 150, 400],
+      programs: { sniff: 1, spoof: 3, decoy: 1, brute: 1 },
       nodes: [
         { id: 'E', col: 0, row: 4, type: 'entry', label: 'ENTRY', icon: 'entry' },
         { id: 'A', col: 1, row: 4, type: 'node', label: 'RACK-01', icon: 'server' },
@@ -662,7 +664,7 @@
       exits: ['C', 'Q', 'Z'],
       caches: { D: { kind: 'cash' } },
       bag: { nodes: ['Q', 'Y'], contents: ['cash', 'honeypot'], canonical: { Q: 'cash', Y: 'honeypot' } },
-      payout: { base: 800, par: 800 },
+      payout: { base: 800, par: 800, parCut: 100 },
       bonus: { id: 'cool', short: 'Cool', text: 'Cool: get out with heat 4 or less', heat: 4 },
       tips: [
         { when: 'start', html: 'Three cameras cover the floor. <b>Spoof</b> lets you end a turn beside one. The exit could be any of three.' },
