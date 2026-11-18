@@ -262,6 +262,29 @@ some jobs because its greedy play rarely beats PAR; the stars are for
 players who plan. The sections "What the validator found" and "What the bot
 found" further down are the v2 write-up, kept for history.
 
+### v3 follow-up fixes
+
+- **Job 02 waiting.** A new K to S link gives a second way off the start
+  side. Spec bot: refusing wins 72% (was 59%), trusting offer 1 wins 63%
+  (was 55%), and turns spent waiting on the start node drop to about 17%
+  (was 18 to 21%).
+- **★2 reachable.** A job can set `payout.parCut`, taken off PAR after the
+  percentile and canonical checks (never below $50). Jobs 03 ($100),
+  06 ($200), 09 ($100) and 10 ($100) use it. New PARs: 03 $650, 06 $600,
+  09 $1500, 10 $750. Spec-bot ★2 is now about 48%, 26%, 13% and 13%.
+- **Job 10 eased.** 12 turns (was 11) and 3 Spoofs. Spec-bot wins rose
+  from 8% to about 15%; the sighted bot wins about 35%.
+- **Wider search.** A job can set `beamK` (widths tried in order); Jobs 09
+  and 10 use `[60, 150, 400]`.
+- **CSV download in the Claude viewer.** The framed artifact page now uses
+  the viewer's downloads capability; elsewhere it still uses a plain link.
+- **Boxed-in limit.** A Worm-stunned Sentry that boxes you in now wakes
+  after one phase, so the wait is never more than 3 phases (the fuzz test
+  checks ≤ 3 again).
+
+Revalidated: 02 (90/192, par $900), 03 (24/24), 04 (46/64), 06 (64/64),
+09 (46/48), 10 (16/24). Jobs 11 to 15 are unchanged.
+
 ## Rules: where v2 differs from the design doc
 
 These are the places where the build differs from, or adds to, the game

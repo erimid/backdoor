@@ -589,7 +589,7 @@
   // of those Sentries is about to leave, the first resting one steps off to a
   // free node instead. A Sentry that isn't resting scans you first and rests
   // the phase after, so you are never boxed in for more than two enemy
-  // phases (four if a blocker was Worm-stunned). This matters most on UNKNOWN,
+  // phases (three if a blocker is stunned: a stunned blocker wakes after one phase). This matters most on UNKNOWN,
   // which Sentries can't enter: two of them on its doorways would otherwise
   // seal you in. Two hunters stuck in a one-door pocket are handled by
   // untangle (above).
@@ -600,6 +600,9 @@
     if (adj.some(function (n) { return playerCanEnter(game, n); })) return;
     var blockers = st.sentries.filter(function (s) { return adj.indexOf(s.pos) !== -1; });
     if (!blockers.length) return;
+    // A Worm-stunned Sentry that boxes you in wakes after one phase, not two,
+    // so a stun can't stretch the wait past three phases.
+    blockers.forEach(function (s) { if (s.stun > 1) s.stun = 1; });
     var leaving = blockers.some(function (s) {
       var it = s.intent;
       return it && it.type === 'move' && it.target !== st.player && !sentryAt(game, it.target);

@@ -272,7 +272,9 @@ function satisfied(r, opts) {
 // Tries K=60 (or opts.K), then K=150 if that doesn't satisfy the request.
 function solve(job, opts) {
   opts = Object.assign({ want: 'stars' }, opts || {});
-  var Ks = opts.K ? [opts.K] : [60, 150];
+  // A job can widen the search (`beamK`): camera-heavy boards need it,
+  // because the rank doesn't see camera zones.
+  var Ks = opts.K ? [opts.K] : (job.beamK || [60, 150]);
   var best = null;
   for (var i = 0; i < Ks.length; i++) {
     var r = search(job, Object.assign({}, opts, { K: Ks[i] }));
