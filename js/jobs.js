@@ -716,7 +716,7 @@
         { id: 'B', start: 'Y', patrol: ['Y', 'Q', 'Y', 'B', 'U', 'B'], offsets: [0, 3] },
         { id: 'D', start: 'P', patrol: ['P', 'R', 'W', 'R'], offsets: [0, 2] }
       ],
-      exits: ['L', 'U'],
+      exits: ['U', 'L'],
       caches: { D: { kind: 'cash' }, H: { kind: 'cash' } },
       bag: { nodes: ['Y', 'Q'], contents: ['cash', 'honeypot'], canonical: { Y: 'cash', Q: 'honeypot' } },
       payout: { base: 900, par: 900 },
@@ -803,7 +803,7 @@
         '.  L  V  K  .',
         'CL S  A  O  .',
         'M  W  .  H  Z',
-        'D  U  T  F  .',
+        'D  U  T  F  VT',
         'P  R  .  G  Q',
         'I  B  N  Y  X',
         '.  J  C  LD .',
@@ -819,7 +819,7 @@
         Q: ['node', 'COLD-RM', 'database', { hidden: true }],
         D: ['node', 'DESK', 'till', { hidden: true }], U: ['ai', 'UNKNOWN', 'ai'], T: ['node', 'CAM-1', 'camera'],
         F: ['firewall', 'FIREWALL', 'firewall'],
-        M: ['node', 'MAIL', 'mail'], W: ['node', 'WIFI', 'wifi'], H: ['node', 'HVAC', 'router'], Z: ['node', 'FREEZER', 'server'],
+        M: ['node', 'MAIL', 'mail'], W: ['node', 'WIFI', 'wifi'], H: ['node', 'HVAC', 'router'], VT: ['node', 'VENT', 'router'], Z: ['node', 'FREEZER', 'server'],
         CL: ['node', 'CLEANRM', 'monitor'], S: ['node', 'SWITCH', 'switch'], A: ['lock', 'BIOLOCK', 'lock'], O: ['node', 'OFFICE', 'monitor'],
         L: ['node', 'LAB-1', 'monitor'], V: ['target', 'GENOME', 'vault'], K: ['node', 'KEYPAD', 'kiosk']
       },
@@ -863,7 +863,7 @@
         { at: 3, kind: 'lockdown', nodes: ['A', 'F'], text: 'Security resets BIOLOCK and FIREWALL.' },
         { at: 6, kind: 'spawn', sentry: { id: 'C', patrol: ['B', 'N', 'C', 'N'] }, text: 'A guard comes down to the lobby.' }
       ],
-      exits: ['P', 'X'],
+      exits: ['P', 'Y'],
       caches: { Z: { kind: 'cash' }, Y: { kind: 'cash' } },
       bag: { nodes: ['D', 'Q'], contents: ['cash', 'honeypot'], canonical: { D: 'cash', Q: 'honeypot' } },
       payout: { base: 1100, par: 1100 },
@@ -980,7 +980,9 @@
         { id: 'B', start: 'HV', patrol: ['HV', 'DS', 'GN', 'TR'], offsets: [0, 2] },
         { id: 'C', start: 'IN', patrol: ['IN', 'UP', 'BR', 'UP'], offsets: [0, 2] }
       ],
-      exits: ['KT', 'JT', 'SW'],
+      // Canonical night (the first run) exits at DOCK; KITCHEN, the long way
+      // home, is a later night.
+      exits: ['JT', 'KT', 'SW'],
       caches: { NA: { kind: 'cash' }, CL: { kind: 'cash' } },
       bag: { nodes: ['YH', 'QH'], contents: ['cash', 'honeypot'], canonical: { YH: 'cash', QH: 'honeypot' } },
       payout: { base: 1600, par: 1600 },

@@ -133,6 +133,19 @@ night, refusing every offer):
 | 14 | 22 / 24 | $1500 | 3★ $1550, turn 10 | 71% | 57% | 1% | 18% |
 | 15 | 24 / 24 | $1650 | 3★ $1930, turn 10 | 85% | 7% | 6% | 17% |
 
+### Hex fixes (after v4)
+
+- **Job 13:** every ARCHIVE-exit night was close to unwinnable, because the
+  right side's only way down ran through the firewall or the watched HVAC.
+  There's a new VENT node in the hole at the right of row 4, and the second exit is now
+  LOCKERS. 15 of 16 nights ship (was 8). Spec bot: 76% win, 21% 3★, 19% of
+  turns on the start node (was 23%).
+- **Job 11:** the first night now exits at VALET (exits `['U', 'L']`). Spec
+  bot: 58% win, 3★ 24% (was 2%).
+- **Job 15:** the first night now exits at DOCK; KITCHEN, the long way home,
+  is a later night. Spec bot on the first night: 60% win (was 7%), 3★ 4%.
+- **Job 14** is unchanged (see below).
+
 ## v4 changes: more challenge
 
 Six additions, all opt-in per job (data in `js/jobs.js`, rules in
